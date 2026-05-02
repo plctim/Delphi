@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Wandering Bezier Worms</title>
+  <title>Wandering Bezier Ribbons</title>
   <style>
     * { margin: 0; padding: 0; }
     body { background: #0a0a0f; overflow: hidden; }
@@ -61,7 +61,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// ── Bezier helpers ────────────────────────────────────────────────────────────
+// ── Bezier / math helpers ─────────────────────────────────────────────────────
 
 function bezierPt(p0, p1, p2, p3, t) {
   const u = 1 - t;
@@ -70,61 +70,21 @@ function bezierPt(p0, p1, p2, p3, t) {
     y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y,
   };
 }
-
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
 function hexToRgb(hex) {
-  return [
-    parseInt(hex.slice(1, 3), 16),
-    parseInt(hex.slice(3, 5), 16),
-    parseInt(hex.slice(5, 7), 16),
-  ];
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
 }
 
-// ── Pre-render a shiny 3-D sphere bead onto an offscreen canvas ───────────────
+// ── Ribbon constants ──────────────────────────────────────────────────────────
 
-function makeBead(r, g, b, size) {
-  const c  = document.createElement('canvas');
-  c.width  = c.height = size;
-  const oc = c.getContext('2d');
-  const cx = size / 2, cy = size / 2, rad = size / 2;
-
-  // Clip everything to a circle
-  oc.beginPath();
-  oc.arc(cx, cy, rad - 0.5, 0, Math.PI * 2);
-  oc.clip();
-
-  // Diffuse layer: lit from upper-left, fades to near-black at lower-right
-  const diffuse = oc.createRadialGradient(
-    cx - rad * 0.28, cy - rad * 0.28, 0,
-    cx, cy, rad
-  );
-  diffuse.addColorStop(0,   `rgb(${Math.min(255,r+100)},${Math.min(255,g+100)},${Math.min(255,b+100)})`);
-  diffuse.addColorStop(0.5, `rgb(${r},${g},${b})`);
-  diffuse.addColorStop(1,   `rgb(${r*0.15|0},${g*0.15|0},${b*0.15|0})`);
-  oc.fillStyle = diffuse;
-  oc.fillRect(0, 0, size, size);
-
-  // Specular highlight: tight bright dot toward upper-left
-  const spec = oc.createRadialGradient(
-    cx - rad * 0.40, cy - rad * 0.42, 0,
-    cx - rad * 0.40, cy - rad * 0.42, rad * 0.58
-  );
-  spec.addColorStop(0,    'rgba(255,255,255,0.92)');
-  spec.addColorStop(0.40, 'rgba(255,255,255,0.22)');
-  spec.addColorStop(1,    'rgba(255,255,255,0)');
-  oc.fillStyle = spec;
-  oc.fillRect(0, 0, size, size);
-
-  // Subtle rim darkening at edge
-  const rim = oc.createRadialGradient(cx, cy, rad * 0.7, cx, cy, rad);
-  rim.addColorStop(0, 'rgba(0,0,0,0)');
-  rim.addColorStop(1, 'rgba(0,0,0,0.45)');
-  oc.fillStyle = rim;
-  oc.fillRect(0, 0, size, size);
-
-  return c;
-}
+const HALF_W          = 18;    // half-width of ribbon (px)
+// Oblique projection: depth component of twist shifts the centre position
+const DEPTH_X         =  0.20;
+const DEPTH_Y         = -0.13;
+const TRAIL_LEN       = 160;   // max stored trail points per worm
+const PT_SPACING      = 5;     // min screen-px between stored trail points
+const T_STEP          = 0.004;
+const STEPS_PER_FRAME = 7;
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 
@@ -136,22 +96,23 @@ const ALL_COLORS = [
 
 // ── Worm ──────────────────────────────────────────────────────────────────────
 
-const BEAD_SIZE       = 22;  // diameter of each 3-D bead (px)
-const BEAD_SPACING    = 5;   // min screen-distance between stored trail points
-const TRAIL_LEN       = 180; // max stored bead count (= body length)
-const T_STEP          = 0.004;
-const STEPS_PER_FRAME = 7;
-
 class Worm {
   constructor(color) {
     const [r, g, b] = hexToRgb(color);
-    this.bead  = makeBead(r, g, b, BEAD_SIZE);
-    this.trail = [];
+    this.r = r; this.g = g; this.b = b;
+    // Lighter tint for edge highlights
+    this.hr = Math.min(255, r + 90);
+    this.hg = Math.min(255, g + 90);
+    this.hb = Math.min(255, b + 90);
+
+    this.trail = [];           // [ {x, y, twist} ]
+    this.twist = Math.random() * Math.PI * 2;
+    // Slightly varied twist rate per worm for visual diversity
+    this.twistRate = 0.042 + Math.random() * 0.028;
+
     this.wanderAngle = Math.random() * Math.PI * 2;
-    this.p0 = this._rand();
-    this.p1 = this._rand();
-    this.p2 = this._rand();
-    this.p3 = this._rand();
+    this.p0 = this._rand(); this.p1 = this._rand();
+    this.p2 = this._rand(); this.p3 = this._rand();
     this.t  = 0;
   }
 
@@ -162,8 +123,7 @@ class Worm {
     };
   }
 
-  // Slide the bezier window forward: old end → new start, wander to new end.
-  // C1 continuity: reflect old p2 around p3 to get new p1 (matching tangent).
+  // Slide bezier window: remove old start, add new end with C1-smooth join.
   _extend() {
     const np0 = { ...this.p3 };
     const np1 = { x: 2*this.p3.x - this.p2.x, y: 2*this.p3.y - this.p2.y };
@@ -177,19 +137,28 @@ class Worm {
       x: (np1.x + np3.x) / 2 + (Math.random() - 0.5) * 150,
       y: (np1.y + np3.y) / 2 + (Math.random() - 0.5) * 150,
     };
-    this.p0 = np0; this.p1 = np1;
-    this.p2 = np2; this.p3 = np3;
+    this.p0 = np0; this.p1 = np1; this.p2 = np2; this.p3 = np3;
     this.t  = 0;
+  }
+
+  // Unit vector perpendicular to the path tangent at trail index i.
+  _perp(i) {
+    const t = this.trail, l = t.length;
+    const prev = t[Math.max(0, i - 1)];
+    const next = t[Math.min(l - 1, i + 1)];
+    const dx = next.x - prev.x, dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return [-dy / len, dx / len];
   }
 
   step() {
     if (this.t >= 1) this._extend();
     const pt   = bezierPt(this.p0, this.p1, this.p2, this.p3, this.t);
     const last = this.trail[this.trail.length - 1];
-    // Only store a new bead when the head has moved far enough
-    if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) >= BEAD_SPACING) {
-      this.trail.push(pt);
-      if (this.trail.length > TRAIL_LEN) this.trail.shift(); // tail erases
+    if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) >= PT_SPACING) {
+      this.trail.push({ x: pt.x, y: pt.y, twist: this.twist });
+      this.twist += this.twistRate;
+      if (this.trail.length > TRAIL_LEN) this.trail.shift();
     }
     this.t += T_STEP;
   }
@@ -199,14 +168,93 @@ class Worm {
   }
 
   draw() {
-    const len  = this.trail.length;
-    const half = BEAD_SIZE / 2;
-    for (let i = 0; i < len; i++) {
-      // Fade from transparent at tail to opaque at head
-      ctx.globalAlpha = ((i + 1) / len) ** 1.6;
-      ctx.drawImage(this.bead, this.trail[i].x - half | 0, this.trail[i].y - half | 0);
+    const len = this.trail.length;
+    if (len < 2) return;
+    const { r, g, b, hr, hg, hb } = this;
+
+    // ── Ribbon quad strip ─────────────────────────────────────────────────────
+    // Each pair of trail points forms a quadrilateral.
+    // cos(twist)  → projected half-width  (0 = edge-on, ±1 = face-on)
+    // sin(twist)  → depth offset via oblique projection
+    // shade        → front face bright (1.0), back face dark (0.15)
+
+    for (let i = 0; i < len - 1; i++) {
+      const pA = this.trail[i];
+      const pB = this.trail[i + 1];
+
+      const [pax, pay] = this._perp(i);
+      const [pbx, pby] = this._perp(i + 1);
+
+      const sA = Math.sin(pA.twist), cA = Math.cos(pA.twist);
+      const sB = Math.sin(pB.twist), cB = Math.cos(pB.twist);
+
+      // Centre of ribbon at each end, shifted by depth component
+      const acx = pA.x + sA * HALF_W * DEPTH_X, acy = pA.y + sA * HALF_W * DEPTH_Y;
+      const bcx = pB.x + sB * HALF_W * DEPTH_X, bcy = pB.y + sB * HALF_W * DEPTH_Y;
+
+      // Screen-space half-width (collapses to 0 at edge-on)
+      const wA = cA * HALF_W, wB = cB * HALF_W;
+
+      // Four corners: left-A, right-A, right-B, left-B
+      const x0 = acx + pax * wA, y0 = acy + pay * wA;
+      const x1 = acx - pax * wA, y1 = acy - pay * wA;
+      const x2 = bcx - pbx * wB, y2 = bcy - pby * wB;
+      const x3 = bcx + pbx * wB, y3 = bcy + pby * wB;
+
+      // Shading: cos=+1 → full bright, cos=−1 → 15% (dark back face)
+      const shade = 0.15 + 0.85 * (cA * 0.5 + 0.5);
+      const ri = Math.min(255, r * shade) | 0;
+      const gi = Math.min(255, g * shade) | 0;
+      const bi = Math.min(255, b * shade) | 0;
+
+      // Tail-to-head alpha fade
+      const alpha = ((i + 1) / len) ** 1.3;
+
+      ctx.fillStyle = `rgba(${ri},${gi},${bi},${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.lineTo(x3, y3);
+      ctx.closePath();
+      ctx.fill();
     }
-    ctx.globalAlpha = 1;
+
+    // ── Edge highlight lines ──────────────────────────────────────────────────
+    // Thin bright lines along both long edges of the ribbon.
+    // When the ribbon is edge-on the two edges meet at a point, creating the
+    // characteristic bright gleam of a twisting ribbon.
+    // A gradient from tail-end to head-end approximates the alpha fade cheaply.
+
+    ctx.lineWidth = 1.5;
+    const tail = this.trail[0], head = this.trail[len - 1];
+
+    for (const side of [-1, 1]) {
+      // Endpoints for gradient direction (approximate; good enough for wandering paths)
+      const tPerp = this._perp(0);
+      const hPerp = this._perp(len - 1);
+      const tx = tail.x + Math.sin(tail.twist) * HALF_W * DEPTH_X + tPerp[0] * Math.cos(tail.twist) * HALF_W * side;
+      const ty = tail.y + Math.sin(tail.twist) * HALF_W * DEPTH_Y + tPerp[1] * Math.cos(tail.twist) * HALF_W * side;
+      const hx = head.x + Math.sin(head.twist) * HALF_W * DEPTH_X + hPerp[0] * Math.cos(head.twist) * HALF_W * side;
+      const hy = head.y + Math.sin(head.twist) * HALF_W * DEPTH_Y + hPerp[1] * Math.cos(head.twist) * HALF_W * side;
+
+      const grad = ctx.createLinearGradient(tx, ty, hx, hy);
+      grad.addColorStop(0,    `rgba(${hr},${hg},${hb},0)`);
+      grad.addColorStop(0.25, `rgba(${hr},${hg},${hb},0.15)`);
+      grad.addColorStop(1,    `rgba(${hr},${hg},${hb},0.6)`);
+      ctx.strokeStyle = grad;
+
+      ctx.beginPath();
+      for (let i = 0; i < len; i++) {
+        const p  = this.trail[i];
+        const [px, py] = this._perp(i);
+        const s = Math.sin(p.twist), c = Math.cos(p.twist);
+        const ex = p.x + s * HALF_W * DEPTH_X + px * c * HALF_W * side;
+        const ey = p.y + s * HALF_W * DEPTH_Y + py * c * HALF_W * side;
+        i === 0 ? ctx.moveTo(ex, ey) : ctx.lineTo(ex, ey);
+      }
+      ctx.stroke();
+    }
   }
 }
 
@@ -223,7 +271,7 @@ function removeWorm() {
   if (worms.length > 1) { worms.pop(); updateCount(); }
 }
 function updateCount() {
-  countEl.textContent = `${worms.length} worm${worms.length !== 1 ? 's' : ''}`;
+  countEl.textContent = `${worms.length} ribbon${worms.length !== 1 ? 's' : ''}`;
 }
 
 for (let i = 0; i < 5; i++) addWorm();
