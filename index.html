@@ -121,8 +121,8 @@
     cursor: pointer;
     transition: stroke 0.15s;
   }
-  .line:hover { stroke: var(--line-hover); }
-  .line.claimed { cursor: default; }
+  .line:not(.claimed):hover { stroke: var(--line-hover); }
+  .line.claimed { cursor: default; stroke-width: 8; }
   .box-label {
     text-anchor: middle;
     dominant-baseline: central;
@@ -316,9 +316,8 @@
     edges[key] = current;
 
     const lineEl = document.getElementById(key);
-    lineEl.setAttribute('stroke', players[current].color);
+    lineEl.style.stroke = players[current].color;
     lineEl.classList.add('claimed');
-    lineEl.style.cursor = 'default';
 
     // Check adjacent boxes for completion
     const completedBoxes = [];
