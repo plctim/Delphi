@@ -76,16 +76,13 @@ type
   end;
 
   // ── Sprites (cat, frog, toaster) ─────────────────────────────────────────────
-  TSprKind = (skCat, skFrog, skToaster);
-
   TSprite = class
   private
-    FKind: TSprKind;
+    FSprIdx: Integer;
     FX, FY, FVX, FVY: Single;
     FRadius, FMass, FScl, FT: Single;
     FHopTimer: Integer;
     FSW, FSH: Single;
-    procedure DrawToaster(C: TCanvas);
   public
     constructor Create(SW, SH: Single; Scatter: Boolean = False);
     procedure Update;
@@ -134,6 +131,46 @@ procedure ParseHex(const S: string; out R, G, B: Byte);
 implementation
 
 {$R *.fmx}
+
+const
+  SPR_EMOJI: array[0..99] of string = (
+    '🐱','🐸','🐶','🐭','🐹','🐰','🐻','🐼','🐨','🐯',
+    '🦊','🐮','🐷','🐙','🦋','🐝','🐞','🦄','🐬','🐠',
+    '🐡','🦀','🐢','🦔','🦦','🦥','🦘','🦙','🦒','🦓',
+    '🐇','🦝','🦭','🐿','🦫','🦚','🦜','🦢','🦩','🦆',
+    '🦉','🐛','🐌','🪲','🦎','🦕','🦖','🐳','🦑','🦞',
+    '🍦','🍩','🍪','🍰','🧁','🍫','🍬','🍭','🍡','🎂',
+    '🎈','🎀','🎁','🪀','🎮','🌸','🌺','🌻','🌹','🌷',
+    '🌈','⭐','🌟','💫','✨','🌙','🍄','🌵','🎄','🚀',
+    '🛸','🎠','🎨','🔮','🧸','🪆','🪄','💎','🌀','🎆',
+    '🎇','🧨','🏆','🧊','🪸','🫧','🪼','🐧','🦤','🎪'
+  );
+  // 0=float(sinusoidal) 1=hop(gravity+jump) 2=drift
+  SPR_BEHAV: array[0..99] of Byte = (
+    0,1,0,1,1, 1,2,0,0,2,
+    0,2,1,0,0, 0,0,0,0,0,
+    0,1,2,2,0, 2,1,2,2,2,
+    1,0,0,1,2, 0,0,0,0,0,
+    0,2,2,1,2, 2,2,0,0,1,
+    1,1,1,1,0, 2,0,0,1,1,
+    0,0,1,1,2, 0,0,0,0,0,
+    0,0,0,0,0, 0,1,2,2,0,
+    0,0,0,0,1, 1,0,0,0,0,
+    0,1,1,2,2, 0,0,0,2,2
+  );
+  // mass × 10 stored as byte
+  SPR_MASS10: array[0..99] of Byte = (
+    10,12,11, 8, 8,  9,18,16,14,15,
+    11,16,14,13, 6,  7, 7,13,15, 8,
+     9,11,12, 9,10, 15,16,14,17,16,
+     8,10,15, 7,12, 12, 9,11,10,10,
+    11, 6, 5, 7, 9, 20,20,20,12,11,
+     7, 8, 8, 9, 7,  8, 6, 7, 7,10,
+     5, 6,10, 7,10,  5, 6, 7, 6, 5,
+     8, 6, 6, 5, 5,  7, 8,12,10, 9,
+    11,12, 8,10,12,  9, 7,12, 8, 7,
+     7, 8,11,13,10,  4, 8,10,13,12
+  );
 
 function RGB(R, G, B: Byte): TAlphaColor;
 begin
@@ -452,19 +489,17 @@ end;
 // ════════════════════════════════════════════════════════════════════════════
 
 constructor TSprite.Create(SW, SH: Single; Scatter: Boolean);
-const
-  SPR_MASS: array[TSprKind] of Single = (1.0, 1.2, 1.6); // cat, frog, toaster
 var
   Spd, Ang: Single;
   GoRight: Boolean;
 begin
   inherited Create;
-  FSW   := SW; FSH := SH;
-  FKind := TSprKind(Random(3));
-  FScl  := 0.8 + Random * 0.6;
-  FMass := SPR_MASS[FKind];
-  FRadius := IfThen(FKind = skToaster, 24, 20) * FScl;
-  FT := Random * 300;
+  FSW      := SW; FSH := SH;
+  FSprIdx  := Random(100);
+  FScl     := 0.8 + Random * 0.6;
+  FMass    := SPR_MASS10[FSprIdx] / 10.0;
+  FRadius  := 20 * FScl;
+  FT       := Random * 300;
   FHopTimer := 0;
   Spd := 1.5 + Random * 2.0;
   if Scatter then
@@ -488,8 +523,8 @@ procedure TSprite.Update;
 var
   Spd: Single;
 begin
-  case FKind of
-    skFrog:
+  case SPR_BEHAV[FSprIdx] of
+    1:
     begin
       FVY := FVY + 0.06;
       Inc(FHopTimer);
@@ -499,7 +534,7 @@ begin
         FHopTimer := 0;
       end;
     end;
-    skCat:
+    0:
       FVY := FVY + Sin(FT * 0.05) * 0.06;
   end;
   Spd := Sqrt(FVX * FVX + FVY * FVY);
@@ -513,66 +548,11 @@ begin
   if FY > FSH - FRadius then begin FY := FSH - FRadius; FVY := -Abs(FVY) * 0.85; end;
 end;
 
-procedure TSprite.DrawToaster(C: TCanvas);
-var
-  S, CX, CY, WH: Single;
-begin
-  CX := FX; CY := FY; S := FScl;
-  WH := Sin(FT * 0.12) * 7 * S; // wing-flap vertical offset
-
-  C.Fill.Kind   := TBrushKind.Solid;
-  C.Stroke.Kind := TBrushKind.Solid;
-
-  // Wings (drawn first so body overlaps the root)
-  C.Fill.Color   := RGB(192, 192, 192);
-  C.Stroke.Color := RGB(136, 136, 136);
-  C.Stroke.Thickness := 0.8;
-  C.FillRect(TRectF.Create(CX-(31*S), CY+WH,    CX-(14*S), CY+WH+(8*S)),  0,0,AllCorners,1);
-  C.FillRect(TRectF.Create(CX+(14*S), CY+WH,    CX+(31*S), CY+WH+(8*S)),  0,0,AllCorners,1);
-  C.DrawRect( TRectF.Create(CX-(31*S), CY+WH,    CX-(14*S), CY+WH+(8*S)),  0,0,AllCorners,1);
-  C.DrawRect( TRectF.Create(CX+(14*S), CY+WH,    CX+(31*S), CY+WH+(8*S)),  0,0,AllCorners,1);
-
-  // Body
-  C.Fill.Color   := RGB(184, 184, 184);
-  C.Stroke.Color := RGB(136, 136, 136);
-  C.Stroke.Thickness := 1.0;
-  C.FillRect(TRectF.Create(CX-14*S, CY-12*S, CX+14*S, CY+12*S), 3*S, 3*S, AllCorners, 1);
-  C.DrawRect( TRectF.Create(CX-14*S, CY-12*S, CX+14*S, CY+12*S), 3*S, 3*S, AllCorners, 1);
-
-  // Slots
-  C.Fill.Color := RGB(68, 68, 68);
-  C.FillRect(TRectF.Create(CX-8*S, CY-9*S, CX-4*S, CY+5*S), 0,0,AllCorners,1);
-  C.FillRect(TRectF.Create(CX+4*S, CY-9*S, CX+8*S, CY+5*S), 0,0,AllCorners,1);
-
-  // Shine
-  C.Fill.Color := TAlphaColor($44FFFFFF);
-  C.FillRect(TRectF.Create(CX-12*S, CY-10*S, CX-8*S, CY+10*S), 2,2,AllCorners,1);
-
-  // Toast pops out periodically
-  if Sin(FT * 0.04) > 0.85 then
-  begin
-    C.Fill.Color   := RGB(245, 200, 66);
-    C.Stroke.Color := RGB(184, 134, 11);
-    C.Stroke.Thickness := 0.8;
-    C.FillRect(TRectF.Create(CX-5*S, CY-22*S, CX-1*S, CY-13*S), 1,1,AllCorners,1);
-    C.DrawRect( TRectF.Create(CX-5*S, CY-22*S, CX-1*S, CY-13*S), 1,1,AllCorners,1);
-    C.FillRect(TRectF.Create(CX+2*S, CY-20*S, CX+6*S, CY-11*S), 1,1,AllCorners,1);
-    C.DrawRect( TRectF.Create(CX+2*S, CY-20*S, CX+6*S, CY-11*S), 1,1,AllCorners,1);
-  end;
-end;
-
 procedure TSprite.Draw(C: TCanvas);
 var
-  Emoji: string;
   Sz: Single;
 begin
-  if FKind = skToaster then
-  begin
-    DrawToaster(C);
-    Exit;
-  end;
-  Emoji := IfThen(FKind = skCat, '🐱', '🐸');
-  Sz    := Round(36 * FScl);
+  Sz := Round(36 * FScl);
   C.Font.Size   := Sz;
   {$IFDEF MSWINDOWS}
   C.Font.Family := 'Segoe UI Emoji';
@@ -583,7 +563,7 @@ begin
   C.Fill.Color := TAlphaColors.White;
   C.FillText(
     TRectF.Create(FX - Sz, FY - Sz, FX + Sz, FY + Sz),
-    Emoji, False, 1.0, [], TTextAlign.Center, TTextAlign.Center);
+    SPR_EMOJI[FSprIdx], False, 1.0, [], TTextAlign.Center, TTextAlign.Center);
 end;
 
 function TSprite.Offscreen: Boolean;
