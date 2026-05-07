@@ -67,7 +67,7 @@ type
     FKind:   TFWKind;
     FParts:  TArray<TParticle>;
     procedure Spawn;
-    procedure AddP(VX, VY: Single; R, G, B: Byte; Sz, Grav, Drag: Single);
+    procedure AddP(PVX, PVY: Single; PR, PG, PB: Byte; PSz, PGrav, PDrag: Single);
   public
     constructor Create(X, Y: Single; R, G, B: Byte);
     procedure Update;
