@@ -472,26 +472,26 @@ begin
   case FKind of
     skFrog:
     begin
-      FVY := FVY + 0.10;
+      FVY := FVY + 0.06;
       Inc(FHopTimer);
       if FHopTimer > 65 + Random(40) then
       begin
-        FVY := FVY - (5 + Random * 2);
+        FVY := FVY - (4 + Random * 2);
         FHopTimer := 0;
       end;
     end;
     skCat:
       FVY := FVY + Sin(FT * 0.05) * 0.06;
   end;
-  FVX := FVX * 0.992;
-  FVY := FVY * 0.992;
   Spd := Sqrt(FVX * FVX + FVY * FVY);
   if Spd > 7 then begin FVX := FVX / Spd * 7; FVY := FVY / Spd * 7; end;
   FX := FX + FVX;
   FY := FY + FVY;
   FT := FT + 1;
-  if FY < FRadius then begin FY := FRadius; FVY := Abs(FVY) * 0.75; end;
-  if FY > FSH - FRadius then begin FY := FSH - FRadius; FVY := -Abs(FVY) * 0.75; end;
+  if FX < FRadius then begin FX := FRadius; FVX := Abs(FVX); end;
+  if FX > FSW - FRadius then begin FX := FSW - FRadius; FVX := -Abs(FVX); end;
+  if FY < FRadius then begin FY := FRadius; FVY := Abs(FVY) * 0.85; end;
+  if FY > FSH - FRadius then begin FY := FSH - FRadius; FVY := -Abs(FVY) * 0.85; end;
 end;
 
 procedure TSprite.DrawToaster(C: TCanvas);
@@ -740,7 +740,7 @@ begin
   begin
     FSprites[I].Update;
     if FSprites[I].Offscreen then
-      FSprites[I] := TSprite.Create(Screen.WorkAreaWidth, Screen.WorkAreaHeight);
+      FSprites[I] := TSprite.Create(Screen.WorkAreaWidth, Screen.WorkAreaHeight, True);
   end;
 
   for I := 0 to FSprites.Count - 2 do

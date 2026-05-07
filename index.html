@@ -257,22 +257,20 @@ class Sprite {
     this.hopTimer=0;
   }
   update(){
-    const H=canvas.height;
-    // Character physics
+    const W=canvas.width, H=canvas.height;
     if(this.type==='frog'){
-      this.vy+=0.10; // gravity
-      if(++this.hopTimer>65+(Math.random()*40|0)){ this.vy-=5+Math.random()*2; this.hopTimer=0; }
+      this.vy+=0.06;
+      if(++this.hopTimer>65+(Math.random()*40|0)){this.vy-=(4+Math.random()*2);this.hopTimer=0;}
     } else if(this.type==='cat'){
-      this.vy+=Math.sin(this.t*0.05)*0.06; // gentle float
+      this.vy+=Math.sin(this.t*0.05)*0.06;
     }
-    // Damping + speed cap
-    this.vx*=0.992; this.vy*=0.992;
     const spd=Math.hypot(this.vx,this.vy);
     if(spd>7){this.vx=this.vx/spd*7;this.vy=this.vy/spd*7;}
     this.x+=this.vx; this.y+=this.vy; this.t++;
-    // Top/bottom wall bounce
-    if(this.y<this.radius){this.y=this.radius;this.vy=Math.abs(this.vy)*0.75;}
-    if(this.y>H-this.radius){this.y=H-this.radius;this.vy=-Math.abs(this.vy)*0.75;}
+    if(this.x<this.radius){this.x=this.radius;this.vx=Math.abs(this.vx);}
+    if(this.x>W-this.radius){this.x=W-this.radius;this.vx=-Math.abs(this.vx);}
+    if(this.y<this.radius){this.y=this.radius;this.vy=Math.abs(this.vy)*0.85;}
+    if(this.y>H-this.radius){this.y=H-this.radius;this.vy=-Math.abs(this.vy)*0.85;}
   }
   draw(){
     if(this.type==='toaster'){
@@ -359,7 +357,7 @@ function frame(){
   // Sprites
   for(let i=0;i<sprites.length;i++){
     sprites[i].update(); sprites[i].draw();
-    if(sprites[i].offscreen)sprites[i]=new Sprite();
+    if(sprites[i].offscreen)sprites[i]=new Sprite(true);
   }
   for(let i=0;i<sprites.length-1;i++)
     for(let j=i+1;j<sprites.length;j++)
