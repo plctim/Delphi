@@ -112,7 +112,7 @@ type
     FSprites: TObjectList<TSprite>;
     FFrame, FNextFW, FCursor: Integer;
     procedure OnTick(Sender: TObject);
-    procedure OnPaint(Sender: TObject; Canvas: TCanvas; const ARect: TRectF);
+    procedure OnPaint(Sender: TObject; Canvas: TCanvas);
     procedure AddWorm;
     procedure RemoveWorm;
     procedure UpdateCount;
@@ -752,7 +752,7 @@ begin
   FPBox.Repaint;
 end;
 
-procedure TMainForm.OnPaint(Sender: TObject; Canvas: TCanvas; const ARect: TRectF);
+procedure TMainForm.OnPaint(Sender: TObject; Canvas: TCanvas);
 var
   W:  TWorm;
   FW: TFirework;
