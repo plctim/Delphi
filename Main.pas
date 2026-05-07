@@ -81,17 +81,22 @@ type
   TSprite = class
   private
     FKind: TSprKind;
-    FX, FBaseY, FY, FSpd, FScl, FT: Single;
-    FGoRight: Boolean;
+    FX, FY, FVX, FVY: Single;
+    FRadius, FMass, FScl, FT: Single;
+    FHopTimer: Integer;
     FSW, FSH: Single;
     procedure DrawToaster(C: TCanvas);
   public
-    constructor Create(SW, SH: Single);
+    constructor Create(SW, SH: Single; Scatter: Boolean = False);
     procedure Update;
     procedure Draw(C: TCanvas);
     function  Offscreen: Boolean;
-    property X:     Single read FX write FX;
-    property BaseY: Single read FBaseY write FBaseY;
+    property X:      Single read FX write FX;
+    property Y:      Single read FY write FY;
+    property VX:     Single read FVX write FVX;
+    property VY:     Single read FVY write FVY;
+    property Radius: Single read FRadius;
+    property Mass:   Single read FMass;
   end;
 
   // ── Main form ────────────────────────────────────────────────────────────────
@@ -113,6 +118,7 @@ type
     procedure UpdateCount;
     procedure BtnAddClick(Sender: TObject);
     procedure BtnRemClick(Sender: TObject);
+    procedure ResolveCollision(A, B: TSprite);
   public
     constructor Create(AOwner: TComponent); override;
     destructor  Destroy; override;
@@ -426,29 +432,66 @@ end;
 //  TSprite
 // ════════════════════════════════════════════════════════════════════════════
 
-constructor TSprite.Create(SW, SH: Single);
+constructor TSprite.Create(SW, SH: Single; Scatter: Boolean);
+const
+  SPR_MASS: array[TSprKind] of Single = (1.0, 1.2, 1.6); // cat, frog, toaster
+var
+  Spd, Ang: Single;
+  GoRight: Boolean;
 begin
   inherited Create;
-  FSW := SW; FSH := SH;
-  FKind    := TSprKind(Random(3));
-  FGoRight := Random < 0.5;
-  FX       := IfThen(FGoRight, -80, SW + 80);
-  FBaseY   := 60 + Random * (SH - 120);
-  FY       := FBaseY;
-  FSpd     := 1.5 + Random * 2.5;
-  FScl     := 0.8 + Random * 0.6;
-  FT       := Random * 300;
+  FSW   := SW; FSH := SH;
+  FKind := TSprKind(Random(3));
+  FScl  := 0.8 + Random * 0.6;
+  FMass := SPR_MASS[FKind];
+  FRadius := IfThen(FKind = skToaster, 24, 20) * FScl;
+  FT := Random * 300;
+  FHopTimer := 0;
+  Spd := 1.5 + Random * 2.0;
+  if Scatter then
+  begin
+    FX := FRadius + Random * (SW - FRadius * 2);
+    FY := FRadius + Random * (SH - FRadius * 2);
+    Ang := Random * 2 * Pi;
+    FVX := Cos(Ang) * Spd;
+    FVY := Sin(Ang) * Spd;
+  end else
+  begin
+    GoRight := Random < 0.5;
+    FX  := IfThen(GoRight, -80, SW + 80);
+    FY  := 80 + Random * (SH - 160);
+    FVX := IfThen(GoRight, Spd, -Spd);
+    FVY := (Random - 0.5) * 1.5;
+  end;
 end;
 
 procedure TSprite.Update;
+var
+  Spd: Single;
 begin
-  FX := FX + IfThen(FGoRight, FSpd, -FSpd);
-  FT := FT + 1;
   case FKind of
-    skFrog:    FY := FBaseY - Max(0.0, Sin(FT * 0.13)) * 28;
-    skCat:     FY := FBaseY + Sin(FT * 0.05) * 7;
-    skToaster: FY := FBaseY + Sin(FT * 0.06) * 5;
+    skFrog:
+    begin
+      FVY := FVY + 0.10;
+      Inc(FHopTimer);
+      if FHopTimer > 65 + Random(40) then
+      begin
+        FVY := FVY - (5 + Random * 2);
+        FHopTimer := 0;
+      end;
+    end;
+    skCat:
+      FVY := FVY + Sin(FT * 0.05) * 0.06;
   end;
+  FVX := FVX * 0.992;
+  FVY := FVY * 0.992;
+  Spd := Sqrt(FVX * FVX + FVY * FVY);
+  if Spd > 7 then begin FVX := FVX / Spd * 7; FVY := FVY / Spd * 7; end;
+  FX := FX + FVX;
+  FY := FY + FVY;
+  FT := FT + 1;
+  if FY < FRadius then begin FY := FRadius; FVY := Abs(FVY) * 0.75; end;
+  if FY > FSH - FRadius then begin FY := FSH - FRadius; FVY := -Abs(FVY) * 0.75; end;
 end;
 
 procedure TSprite.DrawToaster(C: TCanvas);
@@ -526,8 +569,7 @@ end;
 
 function TSprite.Offscreen: Boolean;
 begin
-  if FGoRight then Result := FX > FSW + 100
-  else             Result := FX < -100;
+  Result := (FX < -120) or (FX > FSW + 120);
 end;
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -537,7 +579,6 @@ end;
 constructor TMainForm.Create(AOwner: TComponent);
 var
   I: Integer;
-  Sp: TSprite;
   R, G, B: Byte;
 begin
   inherited;
@@ -595,12 +636,7 @@ begin
 
   // Pre-scatter sprites across the screen
   for I := 0 to 8 do
-  begin
-    Sp        := TSprite.Create(Screen.WorkAreaWidth, Screen.WorkAreaHeight);
-    Sp.X      := Random * Screen.WorkAreaWidth;
-    Sp.BaseY  := 60 + Random * (Screen.WorkAreaHeight - 120);
-    FSprites.Add(Sp);
-  end;
+    FSprites.Add(TSprite.Create(Screen.WorkAreaWidth, Screen.WorkAreaHeight, True));
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   FTimer          := TTimer.Create(Self);
@@ -645,6 +681,28 @@ end;
 procedure TMainForm.BtnAddClick(Sender: TObject); begin AddWorm; end;
 procedure TMainForm.BtnRemClick(Sender: TObject); begin RemoveWorm; end;
 
+procedure TMainForm.ResolveCollision(A, B: TSprite);
+const E = 0.82;
+var
+  DX, DY, Dist, MinDist, NX, NY: Single;
+  DVX, DVY, VN, Imp, Corr: Single;
+begin
+  DX := B.X - A.X; DY := B.Y - A.Y;
+  Dist := Sqrt(DX * DX + DY * DY);
+  MinDist := A.Radius + B.Radius;
+  if (Dist >= MinDist) or (Dist < 0.01) then Exit;
+  NX := DX / Dist; NY := DY / Dist;
+  DVX := A.VX - B.VX; DVY := A.VY - B.VY;
+  VN := DVX * NX + DVY * NY;
+  if VN <= 0 then Exit;
+  Imp := (1 + E) * VN / (1 / A.Mass + 1 / B.Mass);
+  A.VX := A.VX - Imp / A.Mass * NX; A.VY := A.VY - Imp / A.Mass * NY;
+  B.VX := B.VX + Imp / B.Mass * NX; B.VY := B.VY + Imp / B.Mass * NY;
+  Corr := (MinDist - Dist) * 0.5 + 0.5;
+  A.X := A.X - NX * Corr; A.Y := A.Y - NY * Corr;
+  B.X := B.X + NX * Corr; B.Y := B.Y + NY * Corr;
+end;
+
 procedure TMainForm.OnTick(Sender: TObject);
 var
   W:   TWorm;
@@ -684,6 +742,10 @@ begin
     if FSprites[I].Offscreen then
       FSprites[I] := TSprite.Create(Screen.WorkAreaWidth, Screen.WorkAreaHeight);
   end;
+
+  for I := 0 to FSprites.Count - 2 do
+    for K := I + 1 to FSprites.Count - 1 do
+      ResolveCollision(FSprites[I], FSprites[K]);
 
   FPBox.Repaint;
 end;

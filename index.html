@@ -231,43 +231,84 @@ function drawToaster(cx,cy,t,scale,goRight){
 // ── Sprites ───────────────────────────────────────────────────────────────────
 const SPRITE_TYPES=['cat','frog','toaster'];
 
+// Mass varies by type so heavier objects win collisions
+const SPRITE_MASS = { cat: 1.0, frog: 1.2, toaster: 1.6 };
+
 class Sprite {
-  constructor(){
+  constructor(scatter=false){
     this.type=SPRITE_TYPES[Math.random()*3|0];
-    this.goRight=Math.random()<0.5;
-    this.x=this.goRight?-80:canvas.width+80;
-    this.baseY=60+Math.random()*(canvas.height-120);
-    this.y=this.baseY;
-    this.speed=1.5+Math.random()*2.5;
-    this.t=Math.random()*300;
     this.scale=0.8+Math.random()*0.6;
+    this.radius=(this.type==='toaster'?24:20)*this.scale;
+    this.mass=SPRITE_MASS[this.type];
+    this.t=Math.random()*300;
+    const spd=1.5+Math.random()*2;
+    if(scatter){
+      this.x=this.radius+Math.random()*(canvas.width -this.radius*2);
+      this.y=this.radius+Math.random()*(canvas.height-this.radius*2);
+      const a=Math.random()*Math.PI*2;
+      this.vx=Math.cos(a)*spd; this.vy=Math.sin(a)*spd;
+    } else {
+      const goRight=Math.random()<0.5;
+      this.x=goRight?-80:canvas.width+80;
+      this.y=80+Math.random()*(canvas.height-160);
+      this.vx=goRight?spd:-spd;
+      this.vy=(Math.random()-0.5)*1.5;
+    }
+    this.hopTimer=0;
   }
   update(){
-    this.x+=this.goRight?this.speed:-this.speed;
-    this.t++;
+    const H=canvas.height;
+    // Character physics
     if(this.type==='frog'){
-      this.y=this.baseY-Math.max(0,Math.sin(this.t*0.13))*28;
+      this.vy+=0.10; // gravity
+      if(++this.hopTimer>65+(Math.random()*40|0)){ this.vy-=5+Math.random()*2; this.hopTimer=0; }
     } else if(this.type==='cat'){
-      this.y=this.baseY+Math.sin(this.t*0.05)*7;
-    } else {
-      this.y=this.baseY+Math.sin(this.t*0.06)*5;
+      this.vy+=Math.sin(this.t*0.05)*0.06; // gentle float
     }
+    // Damping + speed cap
+    this.vx*=0.992; this.vy*=0.992;
+    const spd=Math.hypot(this.vx,this.vy);
+    if(spd>7){this.vx=this.vx/spd*7;this.vy=this.vy/spd*7;}
+    this.x+=this.vx; this.y+=this.vy; this.t++;
+    // Top/bottom wall bounce
+    if(this.y<this.radius){this.y=this.radius;this.vy=Math.abs(this.vy)*0.75;}
+    if(this.y>H-this.radius){this.y=H-this.radius;this.vy=-Math.abs(this.vy)*0.75;}
   }
   draw(){
     if(this.type==='toaster'){
-      drawToaster(this.x,this.y,this.t,this.scale,this.goRight);
+      drawToaster(this.x,this.y,this.t,this.scale,this.vx>=0);
     } else {
       const emoji=this.type==='cat'?'🐱':'🐸';
       ctx.save();
       ctx.translate(this.x,this.y);
-      if(!this.goRight)ctx.scale(-1,1);
+      if(this.vx<0)ctx.scale(-1,1);
       ctx.font=`${Math.round(36*this.scale)}px serif`;
       ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillText(emoji,0,0);
       ctx.restore();
     }
   }
-  get offscreen(){return this.goRight?this.x>canvas.width+100:this.x<-100;}
+  get offscreen(){return this.x<-120||this.x>canvas.width+120;}
+}
+
+// Elastic collision between two sprites (unequal masses, restitution 0.82)
+function resolveCollision(a,b){
+  const dx=b.x-a.x, dy=b.y-a.y;
+  const dist=Math.hypot(dx,dy);
+  const minDist=a.radius+b.radius;
+  if(dist>=minDist||dist<0.01) return;
+  const nx=dx/dist, ny=dy/dist;
+  const dvx=a.vx-b.vx, dvy=a.vy-b.vy;
+  const vn=dvx*nx+dvy*ny;
+  if(vn<=0) return; // already separating
+  const e=0.82;
+  const imp=(1+e)*vn/(1/a.mass+1/b.mass);
+  a.vx-=imp/a.mass*nx; a.vy-=imp/a.mass*ny;
+  b.vx+=imp/b.mass*nx; b.vy+=imp/b.mass*ny;
+  // Push apart to eliminate overlap
+  const corr=(minDist-dist)*0.5+0.5;
+  a.x-=nx*corr; a.y-=ny*corr;
+  b.x+=nx*corr; b.y+=ny*corr;
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -282,12 +323,7 @@ function updateCount(){countEl.textContent=`${worms.length} ribbon${worms.length
 for(let i=0;i<5;i++)addWorm();
 
 // Pre-scatter sprites across the screen
-for(let i=0;i<9;i++){
-  const s=new Sprite();
-  s.x=Math.random()*canvas.width;
-  s.baseY=60+Math.random()*(canvas.height-120);
-  sprites.push(s);
-}
+for(let i=0;i<9;i++) sprites.push(new Sprite(true));
 
 document.getElementById('btn-add').addEventListener('click',addWorm);
 document.getElementById('btn-remove').addEventListener('click',removeWorm);
@@ -325,6 +361,9 @@ function frame(){
     sprites[i].update(); sprites[i].draw();
     if(sprites[i].offscreen)sprites[i]=new Sprite();
   }
+  for(let i=0;i<sprites.length-1;i++)
+    for(let j=i+1;j<sprites.length;j++)
+      resolveCollision(sprites[i],sprites[j]);
 
   requestAnimationFrame(frame);
 }
