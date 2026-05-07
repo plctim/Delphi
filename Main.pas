@@ -133,6 +133,8 @@ procedure ParseHex(const S: string; out R, G, B: Byte);
 
 implementation
 
+{$R *.fmx}
+
 function RGB(R, G, B: Byte): TAlphaColor;
 begin
   Result := TAlphaColor(
