@@ -196,11 +196,28 @@ end;
 procedure TWorm.Extend;
 var
   N0, N1, N2, N3: TVec2;
-  D: Single;
+  D, BX, BY, Strength, TargetAngle, AngleDiff: Single;
 begin
   N0 := FP3;
   N1.X := 2*FP3.X - FP2.X; N1.Y := 2*FP3.Y - FP2.Y;
   FWAngle := FWAngle + (Random - 0.5) * 1.3;
+
+  // Steer away from edges
+  BX := 0; BY := 0;
+  if N0.X < 200 then BX := BX + (1.0 - N0.X / 200);
+  if N0.X > FSW - 200 then BX := BX - (1.0 - (FSW - N0.X) / 200);
+  if N0.Y < 200 then BY := BY + (1.0 - N0.Y / 200);
+  if N0.Y > FSH - 200 then BY := BY - (1.0 - (FSH - N0.Y) / 200);
+  Strength := Sqrt(BX * BX + BY * BY);
+  if Strength > 0.01 then
+  begin
+    TargetAngle := ArcTan2(BY, BX);
+    AngleDiff := TargetAngle - FWAngle;
+    while AngleDiff >  Pi do AngleDiff := AngleDiff - 2 * Pi;
+    while AngleDiff < -Pi do AngleDiff := AngleDiff + 2 * Pi;
+    FWAngle := FWAngle + AngleDiff * Min(Strength * 2.0, 1.0);
+  end;
+
   D := 130 + Random * 230;
   N3.X := EnsureRange(N0.X + Cos(FWAngle)*D, 100, FSW - 100);
   N3.Y := EnsureRange(N0.Y + Sin(FWAngle)*D, 100, FSH - 100);
