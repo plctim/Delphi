@@ -297,7 +297,7 @@ begin
     FPath.Clear;
     FPath.MoveTo(PointF(X0,Y0)); FPath.LineTo(PointF(X1,Y1));
     FPath.LineTo(PointF(X2,Y2)); FPath.LineTo(PointF(X3,Y3));
-    FPath.CloseFile;
+    FPath.ClosePath;
     C.FillPath(FPath, Alpha);
   end;
 
