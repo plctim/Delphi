@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wandering Bezier Ribbons</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #0a0a0f; overflow: hidden; }
+    canvas { display: block; }
+    #controls {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 12px; z-index: 10;
+    }
+    button {
+      background: rgba(255,255,255,0.07); color: #fff;
+      border: 1px solid rgba(255,255,255,0.22);
+      padding: 10px 28px; font-size: 15px;
+      font-family: system-ui, sans-serif;
+      cursor: pointer; border-radius: 8px;
+      backdrop-filter: blur(10px);
+      transition: background 0.15s; user-select: none;
+    }
+    button:hover  { background: rgba(255,255,255,0.16); }
+    button:active { background: rgba(255,255,255,0.28); }
+    #count {
+      position: fixed; bottom: 30px; right: 22px;
+      color: rgba(255,255,255,0.28);
+      font-family: system-ui, sans-serif; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="controls">
+  <button id="btn-remove">− Remove</button>
+  <button id="btn-add">+ Add</button>
+</div>
+<div id="count"></div>
+<script>
+const canvas  = document.getElementById('c');
+const ctx     = canvas.getContext('2d');
+const countEl = document.getElementById('count');
+const TAU     = Math.PI * 2;
+
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize);
+resize();
+
+function bezierPt(p0,p1,p2,p3,t){const u=1-t;return{x:u*u*u*p0.x+3*u*u*t*p1.x+3*u*t*t*p2.x+t*t*t*p3.x,y:u*u*u*p0.y+3*u*u*t*p1.y+3*u*t*t*p2.y+t*t*t*p3.y};}
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function hexToRgb(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+
+const ALL_COLORS = [
+  '#ff6b9d','#45d4fa','#a78bfa','#34d399','#fbbf24',
+  '#f97316','#38bdf8','#c084fc','#4ade80','#fb923c',
+  '#e879f9','#2dd4bf','#facc15','#f87171','#60a5fa',
+];
+
+// ── Ribbon ────────────────────────────────────────────────────────────────────
+const HALF_W=18, DEPTH_X=0.20, DEPTH_Y=-0.13;
+const TRAIL_LEN=160, PT_SPACING=5, T_STEP=0.004, STEPS_PER_FRAME=7;
+
+class Worm {
+  constructor(color) {
+    [this.r,this.g,this.b] = hexToRgb(color);
+    this.hr=Math.min(255,this.r+90); this.hg=Math.min(255,this.g+90); this.hb=Math.min(255,this.b+90);
+    this.trail=[]; this.twist=Math.random()*TAU;
+    this.twistRate=0.042+Math.random()*0.028;
+    this.wanderAngle=Math.random()*TAU;
+    this.p0=this._r(); this.p1=this._r(); this.p2=this._r(); this.p3=this._r(); this.t=0;
+  }
+  _r(){return{x:100+Math.random()*(canvas.width-200),y:100+Math.random()*(canvas.height-200)};}
+  _extend(){
+    const np0={...this.p3},np1={x:2*this.p3.x-this.p2.x,y:2*this.p3.y-this.p2.y};
+    this.wanderAngle+=(Math.random()-0.5)*1.3;
+    const d=130+Math.random()*230;
+    const np3={x:clamp(np0.x+Math.cos(this.wanderAngle)*d,100,canvas.width-100),y:clamp(np0.y+Math.sin(this.wanderAngle)*d,100,canvas.height-100)};
+    const np2={x:(np1.x+np3.x)/2+(Math.random()-0.5)*150,y:(np1.y+np3.y)/2+(Math.random()-0.5)*150};
+    this.p0=np0;this.p1=np1;this.p2=np2;this.p3=np3;this.t=0;
+  }
+  _perp(i){const t=this.trail,l=t.length,prev=t[Math.max(0,i-1)],next=t[Math.min(l-1,i+1)];const dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return[-dy/len,dx/len];}
+  step(){
+    if(this.t>=1)this._extend();
+    const pt=bezierPt(this.p0,this.p1,this.p2,this.p3,this.t);
+    const last=this.trail[this.trail.length-1];
+    if(!last||Math.hypot(pt.x-last.x,pt.y-last.y)>=PT_SPACING){
+      this.trail.push({x:pt.x,y:pt.y,twist:this.twist});
+      this.twist+=this.twistRate;
+      if(this.trail.length>TRAIL_LEN)this.trail.shift();
+    }
+    this.t+=T_STEP;
+  }
+  update(){for(let i=0;i<STEPS_PER_FRAME;i++)this.step();}
+  draw(){
+    const len=this.trail.length; if(len<2)return;
+    const{r,g,b,hr,hg,hb}=this;
+    for(let i=0;i<len-1;i++){
+      const pA=this.trail[i],pB=this.trail[i+1];
+      const[pax,pay]=this._perp(i),[pbx,pby]=this._perp(i+1);
+      const sA=Math.sin(pA.twist),cA=Math.cos(pA.twist),sB=Math.sin(pB.twist),cB=Math.cos(pB.twist);
+      const acx=pA.x+sA*HALF_W*DEPTH_X,acy=pA.y+sA*HALF_W*DEPTH_Y;
+      const bcx=pB.x+sB*HALF_W*DEPTH_X,bcy=pB.y+sB*HALF_W*DEPTH_Y;
+      const wA=cA*HALF_W,wB=cB*HALF_W;
+      const x0=acx+pax*wA,y0=acy+pay*wA,x1=acx-pax*wA,y1=acy-pay*wA;
+      const x2=bcx-pbx*wB,y2=bcy-pby*wB,x3=bcx+pbx*wB,y3=bcy+pby*wB;
+      const shade=0.15+0.85*(cA*0.5+0.5);
+      const alpha=((i+1)/len)**1.3;
+      ctx.fillStyle=`rgba(${Math.min(255,r*shade)|0},${Math.min(255,g*shade)|0},${Math.min(255,b*shade)|0},${alpha.toFixed(3)})`;
+      ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineTo(x3,y3);ctx.closePath();ctx.fill();
+    }
+    ctx.lineWidth=1.5;
+    for(const side of[-1,1]){
+      const t0=this.trail[0],t1=this.trail[len-1];
+      const[p0x,p0y]=this._perp(0),[p1x,p1y]=this._perp(len-1);
+      const s0=Math.sin(t0.twist),c0=Math.cos(t0.twist),s1=Math.sin(t1.twist),c1=Math.cos(t1.twist);
+      const tx=t0.x+s0*HALF_W*DEPTH_X+p0x*c0*HALF_W*side,ty=t0.y+s0*HALF_W*DEPTH_Y+p0y*c0*HALF_W*side;
+      const hx=t1.x+s1*HALF_W*DEPTH_X+p1x*c1*HALF_W*side,hy=t1.y+s1*HALF_W*DEPTH_Y+p1y*c1*HALF_W*side;
+      const grad=ctx.createLinearGradient(tx,ty,hx,hy);
+      grad.addColorStop(0,`rgba(${hr},${hg},${hb},0)`);
+      grad.addColorStop(1,`rgba(${hr},${hg},${hb},0.6)`);
+      ctx.strokeStyle=grad;
+      ctx.beginPath();
+      for(let i=0;i<len;i++){
+        const p=this.trail[i],[px,py]=this._perp(i);
+        const s=Math.sin(p.twist),c=Math.cos(p.twist);
+        const ex=p.x+s*HALF_W*DEPTH_X+px*c*HALF_W*side,ey=p.y+s*HALF_W*DEPTH_Y+py*c*HALF_W*side;
+        i===0?ctx.moveTo(ex,ey):ctx.lineTo(ex,ey);
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+// ── Fireworks ─────────────────────────────────────────────────────────────────
+const FW_TYPES = ['burst','ring','willow','star'];
+
+class Firework {
+  constructor(x,y,r,g,b){
+    this.x=x; this.y=y; this.r=r; this.g=g; this.b=b;
+    this.type=FW_TYPES[Math.random()*4|0];
+    this.particles=[];
+    this._spawn();
+  }
+  _p(vx,vy,r,g,b,size,gravity,drag){
+    return{x:this.x,y:this.y,vx,vy,r,g,b,size,alpha:1,gravity,drag};
+  }
+  _spawn(){
+    const{r,g,b}=this;
+    if(this.type==='burst'){
+      for(let i=0;i<40;i++){
+        const a=Math.random()*TAU,s=1.2+Math.random()*4;
+        const w=Math.random()<0.25;
+        this.particles.push(this._p(Math.cos(a)*s,Math.sin(a)*s,w?255:r,w?245:g,w?200:b,1.5+Math.random()*1.5,0.07,0.97));
+      }
+    } else if(this.type==='ring'){
+      for(let i=0;i<32;i++){
+        const a=(i/32)*TAU,s=3.5+Math.random()*0.8;
+        this.particles.push(this._p(Math.cos(a)*s,Math.sin(a)*s,r,g,b,2.5,0.025,0.985));
+      }
+    } else if(this.type==='willow'){
+      for(let i=0;i<35;i++){
+        const a=-Math.PI/2+(Math.random()-0.5)*Math.PI*0.9,s=1.5+Math.random()*2.5;
+        this.particles.push(this._p(Math.cos(a)*s,Math.sin(a)*s,Math.min(255,r+80),Math.min(255,g+40),Math.max(0,b-60),1.5,0.15,0.95));
+      }
+    } else { // star
+      for(let arm=0;arm<6;arm++){
+        for(let j=0;j<6;j++){
+          const a=(arm/6)*TAU,s=0.7+j*0.65;
+          const inner=j<2;
+          this.particles.push(this._p(Math.cos(a)*s,Math.sin(a)*s,inner?255:r,inner?250:g,inner?220:b,inner?3:2,0.03,0.99));
+        }
+      }
+    }
+  }
+  update(){
+    for(const p of this.particles){
+      p.x+=p.vx; p.y+=p.vy; p.vy+=p.gravity; p.vx*=p.drag; p.vy*=p.drag; p.alpha-=0.017;
+    }
+  }
+  draw(){
+    ctx.shadowBlur=10; ctx.shadowColor=`rgb(${this.r},${this.g},${this.b})`;
+    for(const p of this.particles){
+      if(p.alpha<=0)continue;
+      ctx.globalAlpha=p.alpha;
+      ctx.fillStyle=`rgb(${p.r},${p.g},${p.b})`;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.shadowBlur=0;
+  }
+  get dead(){return this.particles.every(p=>p.alpha<=0);}
+}
+
+// ── Toaster drawing ───────────────────────────────────────────────────────────
+// ── Sprites ───────────────────────────────────────────────────────────────────
+// b: 0=float(sinusoidal) 1=hop(gravity+jump) 2=drift(constant)
+const SPRITE_DEFS=[
+  {e:'🐱',b:0,m:1.0},{e:'🐸',b:1,m:1.2},{e:'🐶',b:0,m:1.1},{e:'🐭',b:1,m:0.8},{e:'🐹',b:1,m:0.8},
+  {e:'🐰',b:1,m:0.9},{e:'🐻',b:2,m:1.8},{e:'🐼',b:0,m:1.6},{e:'🐨',b:0,m:1.4},{e:'🐯',b:2,m:1.5},
+  {e:'🦊',b:0,m:1.1},{e:'🐮',b:2,m:1.6},{e:'🐷',b:1,m:1.4},{e:'🐙',b:0,m:1.3},{e:'🦋',b:0,m:0.6},
+  {e:'🐝',b:0,m:0.7},{e:'🐞',b:0,m:0.7},{e:'🦄',b:0,m:1.3},{e:'🐬',b:0,m:1.5},{e:'🐠',b:0,m:0.8},
+  {e:'🐡',b:0,m:0.9},{e:'🦀',b:1,m:1.1},{e:'🐢',b:2,m:1.2},{e:'🦔',b:2,m:0.9},{e:'🦦',b:0,m:1.0},
+  {e:'🦥',b:2,m:1.5},{e:'🦘',b:1,m:1.6},{e:'🦙',b:2,m:1.4},{e:'🦒',b:2,m:1.7},{e:'🦓',b:2,m:1.6},
+  {e:'🐇',b:1,m:0.8},{e:'🦝',b:0,m:1.0},{e:'🦭',b:0,m:1.5},{e:'🐿️',b:1,m:0.7},{e:'🦫',b:2,m:1.2},
+  {e:'🦚',b:0,m:1.2},{e:'🦜',b:0,m:0.9},{e:'🦢',b:0,m:1.1},{e:'🦩',b:0,m:1.0},{e:'🦆',b:0,m:1.0},
+  {e:'🦉',b:0,m:1.1},{e:'🐛',b:2,m:0.6},{e:'🐌',b:2,m:0.5},{e:'🪲',b:1,m:0.7},{e:'🦎',b:2,m:0.9},
+  {e:'🦕',b:2,m:2.0},{e:'🦖',b:2,m:2.0},{e:'🐳',b:0,m:2.0},{e:'🦑',b:0,m:1.2},{e:'🦞',b:1,m:1.1},
+  {e:'🍦',b:1,m:0.7},{e:'🍩',b:1,m:0.8},{e:'🍪',b:1,m:0.8},{e:'🍰',b:1,m:0.9},{e:'🧁',b:0,m:0.7},
+  {e:'🍫',b:2,m:0.8},{e:'🍬',b:0,m:0.6},{e:'🍭',b:0,m:0.7},{e:'🍡',b:1,m:0.7},{e:'🎂',b:1,m:1.0},
+  {e:'🎈',b:0,m:0.5},{e:'🎀',b:0,m:0.6},{e:'🎁',b:1,m:1.0},{e:'🪀',b:1,m:0.7},{e:'🎮',b:2,m:1.0},
+  {e:'🌸',b:0,m:0.5},{e:'🌺',b:0,m:0.6},{e:'🌻',b:0,m:0.7},{e:'🌹',b:0,m:0.6},{e:'🌷',b:0,m:0.5},
+  {e:'🌈',b:0,m:0.8},{e:'⭐',b:0,m:0.6},{e:'🌟',b:0,m:0.6},{e:'💫',b:0,m:0.5},{e:'✨',b:0,m:0.5},
+  {e:'🌙',b:0,m:0.7},{e:'🍄',b:1,m:0.8},{e:'🌵',b:2,m:1.2},{e:'🎄',b:2,m:1.0},{e:'🚀',b:0,m:0.9},
+  {e:'🛸',b:0,m:1.1},{e:'🎠',b:0,m:1.2},{e:'🎨',b:0,m:0.8},{e:'🔮',b:0,m:1.0},{e:'🧸',b:1,m:1.2},
+  {e:'🪆',b:1,m:0.9},{e:'🪄',b:0,m:0.7},{e:'💎',b:0,m:1.2},{e:'🌀',b:0,m:0.8},{e:'🎆',b:0,m:0.7},
+  {e:'🎇',b:0,m:0.7},{e:'🧨',b:1,m:0.8},{e:'🏆',b:1,m:1.1},{e:'🧊',b:2,m:1.3},{e:'🪸',b:2,m:1.0},
+  {e:'🫧',b:0,m:0.4},{e:'🪼',b:0,m:0.8},{e:'🐧',b:0,m:1.0},{e:'🦤',b:2,m:1.3},{e:'🎪',b:2,m:1.2},
+];
+
+class Sprite {
+  constructor(scatter=false){
+    this.def=SPRITE_DEFS[Math.random()*100|0];
+    this.scale=0.8+Math.random()*0.6;
+    this.radius=20*this.scale;
+    this.mass=this.def.m;
+    this.t=Math.random()*300;
+    const spd=1.5+Math.random()*2;
+    if(scatter){
+      this.x=this.radius+Math.random()*(canvas.width-this.radius*2);
+      this.y=this.radius+Math.random()*(canvas.height-this.radius*2);
+      const a=Math.random()*Math.PI*2;
+      this.vx=Math.cos(a)*spd; this.vy=Math.sin(a)*spd;
+    } else {
+      const goRight=Math.random()<0.5;
+      this.x=goRight?-80:canvas.width+80;
+      this.y=80+Math.random()*(canvas.height-160);
+      this.vx=goRight?spd:-spd;
+      this.vy=(Math.random()-0.5)*1.5;
+    }
+    this.hopTimer=0;
+  }
+  update(){
+    const W=canvas.width,H=canvas.height;
+    if(this.def.b===1){
+      this.vy+=0.06;
+      if(++this.hopTimer>65+(Math.random()*40|0)){this.vy-=(4+Math.random()*2);this.hopTimer=0;}
+    } else if(this.def.b===0){
+      this.vy+=Math.sin(this.t*0.05)*0.06;
+    }
+    const spd=Math.hypot(this.vx,this.vy);
+    if(spd>7){this.vx=this.vx/spd*7;this.vy=this.vy/spd*7;}
+    this.x+=this.vx; this.y+=this.vy; this.t++;
+    if(this.x<this.radius){this.x=this.radius;this.vx=Math.abs(this.vx);}
+    if(this.x>W-this.radius){this.x=W-this.radius;this.vx=-Math.abs(this.vx);}
+    if(this.y<this.radius){this.y=this.radius;this.vy=Math.abs(this.vy)*0.85;}
+    if(this.y>H-this.radius){this.y=H-this.radius;this.vy=-Math.abs(this.vy)*0.85;}
+  }
+  draw(){
+    const sz=Math.round(36*this.scale);
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    if(this.vx<0) ctx.scale(-1,1);
+    ctx.font=`${sz}px serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(this.def.e,0,0);
+    ctx.restore();
+  }
+  get offscreen(){return this.x<-120||this.x>canvas.width+120;}
+}
+
+// Elastic collision between two sprites (unequal masses, restitution 0.82)
+function resolveCollision(a,b){
+  const dx=b.x-a.x, dy=b.y-a.y;
+  const dist=Math.hypot(dx,dy);
+  const minDist=a.radius+b.radius;
+  if(dist>=minDist||dist<0.01) return;
+  const nx=dx/dist, ny=dy/dist;
+  const dvx=a.vx-b.vx, dvy=a.vy-b.vy;
+  const vn=dvx*nx+dvy*ny;
+  if(vn<=0) return; // already separating
+  const e=0.82;
+  const imp=(1+e)*vn/(1/a.mass+1/b.mass);
+  a.vx-=imp/a.mass*nx; a.vy-=imp/a.mass*ny;
+  b.vx+=imp/b.mass*nx; b.vy+=imp/b.mass*ny;
+  // Push apart to eliminate overlap
+  const corr=(minDist-dist)*0.5+0.5;
+  a.x-=nx*corr; a.y-=ny*corr;
+  b.x+=nx*corr; b.y+=ny*corr;
+}
+
+// ── Setup ─────────────────────────────────────────────────────────────────────
+let colorCursor=0;
+const worms=[], fireworks=[], sprites=[];
+let frameCount=0, nextFW=40;
+
+function addWorm(){worms.push(new Worm(ALL_COLORS[colorCursor++%ALL_COLORS.length]));updateCount();}
+function removeWorm(){if(worms.length>1){worms.pop();updateCount();}}
+function updateCount(){countEl.textContent=`${worms.length} ribbon${worms.length!==1?'s':''}`;}
+
+for(let i=0;i<5;i++)addWorm();
+
+// Pre-scatter sprites across the screen
+for(let i=0;i<9;i++) sprites.push(new Sprite(true));
+
+document.getElementById('btn-add').addEventListener('click',addWorm);
+document.getElementById('btn-remove').addEventListener('click',removeWorm);
+
+// ── Frame loop ────────────────────────────────────────────────────────────────
+function frame(){
+  frameCount++;
+  ctx.fillStyle='#0a0a0f';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Ribbons
+  for(const w of worms){w.update();w.draw();}
+
+  // Spawn fireworks from ribbon trail points
+  if(frameCount>=nextFW&&worms.length>0){
+    nextFW=frameCount+25+Math.random()*55|0;
+    const burst=Math.random()<0.35?2:1;
+    for(let k=0;k<burst;k++){
+      const worm=worms[Math.random()*worms.length|0];
+      if(worm.trail.length>0){
+        const pt=worm.trail[Math.random()*worm.trail.length|0];
+        fireworks.push(new Firework(pt.x,pt.y,worm.r,worm.g,worm.b));
+      }
+    }
+  }
+
+  // Fireworks
+  for(let i=fireworks.length-1;i>=0;i--){
+    fireworks[i].update(); fireworks[i].draw();
+    if(fireworks[i].dead)fireworks.splice(i,1);
+  }
+
+  // Sprites
+  for(let i=0;i<sprites.length;i++){
+    sprites[i].update(); sprites[i].draw();
+    if(sprites[i].offscreen)sprites[i]=new Sprite(true);
+  }
+  for(let i=0;i<sprites.length-1;i++)
+    for(let j=i+1;j<sprites.length;j++)
+      resolveCollision(sprites[i],sprites[j]);
+
+  requestAnimationFrame(frame);
+}
+
+frame();
+</script>
+</body>
+</html>
