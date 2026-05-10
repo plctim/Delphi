@@ -4,7 +4,7 @@ interface
 
 uses
   System.SysUtils, System.Types, System.UITypes, System.Classes, System.Math,
-  System.Generics.Collections, System.StrUtils,
+  System.Math.Vectors, System.Generics.Collections, System.StrUtils,
   FMX.Types, FMX.Controls, FMX.Controls.Presentation, FMX.Forms, FMX.Graphics,
   FMX.Objects, FMX.StdCtrls, FMX.Layouts;
 
@@ -75,14 +75,16 @@ type
     function  Dead: Boolean;
   end;
 
-  // ── Sprites (cat, frog, toaster) ─────────────────────────────────────────────
+  // ── Sprites ──────────────────────────────────────────────────────────────────
   TSprite = class
   private
     FSprIdx: Integer;
     FX, FY, FVX, FVY: Single;
     FRadius, FMass, FScl, FT: Single;
-    FHopTimer: Integer;
+    FAngle, FPulseT, FMorphAlpha: Single;
+    FHopTimer, FMorphTimer, FMorphTarget: Integer;
     FSW, FSH: Single;
+    procedure DrawAt(C: TCanvas; SprIdx: Integer; Alpha: Single);
   public
     constructor Create(SW, SH: Single; Scatter: Boolean = False);
     procedure Update;
@@ -133,7 +135,8 @@ implementation
 {$R *.fmx}
 
 const
-  SPR_EMOJI: array[0..99] of string = (
+  // Indices 0-99: emoji sprites; 100=rainbow star, 101=smiley face, 102=ghost
+  SPR_EMOJI: array[0..102] of string = (
     '🐱','🐸','🐶','🐭','🐹','🐰','🐻','🐼','🐨','🐯',
     '🦊','🐮','🐷','🐙','🦋','🐝','🐞','🦄','🐬','🐠',
     '🐡','🦀','🐢','🦔','🦦','🦥','🦘','🦙','🦒','🦓',
@@ -143,10 +146,11 @@ const
     '🎈','🎀','🎁','🪀','🎮','🌸','🌺','🌻','🌹','🌷',
     '🌈','⭐','🌟','💫','✨','🌙','🍄','🌵','🎄','🚀',
     '🛸','🎠','🎨','🔮','🧸','🪆','🪄','💎','🌀','🎆',
-    '🎇','🧨','🏆','🧊','🪸','🫧','🪼','🐧','🦤','🎪'
+    '🎇','🧨','🏆','🧊','🪸','🫧','🪼','🐧','🦤','🎪',
+    '', '', ''  // 100-102: custom drawn
   );
-  // 0=float(sinusoidal) 1=hop(gravity+jump) 2=drift
-  SPR_BEHAV: array[0..99] of Byte = (
+  // 0=float 1=hop 2=drift
+  SPR_BEHAV: array[0..102] of Byte = (
     0,1,0,1,1, 1,2,0,0,2,
     0,2,1,0,0, 0,0,0,0,0,
     0,1,2,2,0, 2,1,2,2,2,
@@ -156,10 +160,11 @@ const
     0,0,1,1,2, 0,0,0,0,0,
     0,0,0,0,0, 0,1,2,2,0,
     0,0,0,0,1, 1,0,0,0,0,
-    0,1,1,2,2, 0,0,0,2,2
+    0,1,1,2,2, 0,0,0,2,2,
+    2,0,0  // star=drift, face=float, ghost=float
   );
-  // mass × 10 stored as byte
-  SPR_MASS10: array[0..99] of Byte = (
+  // mass × 10
+  SPR_MASS10: array[0..102] of Byte = (
     10,12,11, 8, 8,  9,18,16,14,15,
     11,16,14,13, 6,  7, 7,13,15, 8,
      9,11,12, 9,10, 15,16,14,17,16,
@@ -169,7 +174,8 @@ const
      5, 6,10, 7,10,  5, 6, 7, 6, 5,
      8, 6, 6, 5, 5,  7, 8,12,10, 9,
     11,12, 8,10,12,  9, 7,12, 8, 7,
-     7, 8,11,13,10,  4, 8,10,13,12
+     7, 8,11,13,10,  4, 8,10,13,12,
+     9, 8, 6  // star, face, ghost
   );
 
 function RGB(R, G, B: Byte): TAlphaColor;
@@ -186,6 +192,198 @@ begin
   R := StrToInt('$' + Copy(S, 2, 2));
   G := StrToInt('$' + Copy(S, 4, 2));
   B := StrToInt('$' + Copy(S, 6, 2));
+end;
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Sprite animation helpers
+// ════════════════════════════════════════════════════════════════════════════
+
+function HueColor(H: Single): TAlphaColor;
+var
+  I: Integer;
+  F, R, G, B: Single;
+begin
+  H := Frac(H) * 6; I := Trunc(H); F := H - I;
+  case I of
+    0: begin R:=1;   G:=F;   B:=0;   end;
+    1: begin R:=1-F; G:=1;   B:=0;   end;
+    2: begin R:=0;   G:=1;   B:=F;   end;
+    3: begin R:=0;   G:=1-F; B:=1;   end;
+    4: begin R:=F;   G:=0;   B:=1;   end;
+    else begin R:=1; G:=0;   B:=1-F; end;
+  end;
+  Result := RGB(Round(R*255), Round(G*255), Round(B*255));
+end;
+
+function SpinRate(Idx: Integer): Single;
+begin
+  case Idx of
+    71,72,73,74: Result := 0.025; // ⭐🌟💫✨
+    88:          Result := 0.040; // 🌀
+    89,90:       Result := 0.018; // 🎆🎇
+    80,81:       Result := 0.015; // 🛸🎠
+    100:         Result := 0.050; // rainbow star
+    101:         Result := 0.008; // face wobble
+    else         Result := 0;
+  end;
+end;
+
+function HasPulse(Idx: Integer): Boolean;
+begin
+  case Idx of
+    60,65,66,67,68,69,83,87,95,96,102: Result := True;
+    else Result := False;
+  end;
+end;
+
+procedure DrawAnimStar(C: TCanvas; X, Y, R, Angle, T, Alpha: Single);
+var
+  I: Integer;
+  A, Ri, R2, Ri2: Single;
+  Pts, GPts: array[0..9] of TPointF;
+  Path: TPathData;
+  Clr: TAlphaColor;
+begin
+  R  := R * (1.0 + 0.20 * Sin(T * 0.07));
+  Ri := R * 0.42; R2 := R * 1.35; Ri2 := Ri * 1.35;
+  Clr := HueColor(Frac(T / 240));
+  for I := 0 to 4 do
+  begin
+    A := Angle + I * (2*Pi/5) - Pi/2;
+    Pts[I*2]   := TPointF.Create(X + Cos(A)*R,   Y + Sin(A)*R);
+    GPts[I*2]  := TPointF.Create(X + Cos(A)*R2,  Y + Sin(A)*R2);
+    A := A + Pi/5;
+    Pts[I*2+1]  := TPointF.Create(X + Cos(A)*Ri,  Y + Sin(A)*Ri);
+    GPts[I*2+1] := TPointF.Create(X + Cos(A)*Ri2, Y + Sin(A)*Ri2);
+  end;
+  C.Fill.Kind := TBrushKind.Solid; C.Stroke.Kind := TBrushKind.Solid;
+  // Glow
+  Path := TPathData.Create;
+  try
+    Path.MoveTo(GPts[0]);
+    for I := 1 to 9 do Path.LineTo(GPts[I]);
+    Path.ClosePath;
+    C.Fill.Color := Clr;
+    C.FillPath(Path, Alpha * 0.28);
+  finally Path.Free; end;
+  // Star body
+  Path := TPathData.Create;
+  try
+    Path.MoveTo(Pts[0]);
+    for I := 1 to 9 do Path.LineTo(Pts[I]);
+    Path.ClosePath;
+    C.Fill.Color := Clr;
+    C.FillPath(Path, Alpha);
+    C.Stroke.Color := TAlphaColors.White; C.Stroke.Thickness := 1.5;
+    C.DrawPath(Path, Alpha * 0.55);
+  finally Path.Free; end;
+end;
+
+procedure DrawAnimFace(C: TCanvas; X, Y, R, T, Alpha: Single);
+var
+  Path:   TPathData;
+  EyeSz, MouthR: Single;
+  BlinkL, BlinkR: Boolean;
+  Expr: Integer;
+begin
+  Expr   := Trunc(T / 200) mod 3;
+  BlinkL := (Expr = 1) or (Frac(T / 80.0) > 0.93);
+  BlinkR := Frac(T / 67.0) > 0.94;
+  EyeSz  := R * 0.15;
+  C.Fill.Kind := TBrushKind.Solid; C.Stroke.Kind := TBrushKind.Solid;
+  // Head
+  C.Fill.Color := RGB(255, 218, 36);
+  C.FillEllipse(TRectF.Create(X-R, Y-R, X+R, Y+R), Alpha);
+  C.Stroke.Color := RGB(200, 155, 0); C.Stroke.Thickness := 1.5;
+  C.DrawEllipse(TRectF.Create(X-R, Y-R, X+R, Y+R), Alpha);
+  // Eyes
+  C.Fill.Color := RGB(30, 20, 10);
+  C.Stroke.Color := RGB(30, 20, 10); C.Stroke.Thickness := 2.5;
+  if BlinkL then
+    C.DrawLine(TPointF.Create(X-R*0.42, Y-R*0.22), TPointF.Create(X-R*0.13, Y-R*0.22), Alpha)
+  else
+    C.FillEllipse(TRectF.Create(X-R*0.42-EyeSz, Y-R*0.22-EyeSz, X-R*0.42+EyeSz, Y-R*0.22+EyeSz), Alpha);
+  if BlinkR then
+    C.DrawLine(TPointF.Create(X+R*0.13, Y-R*0.22), TPointF.Create(X+R*0.42, Y-R*0.22), Alpha)
+  else
+    C.FillEllipse(TRectF.Create(X+R*0.42-EyeSz, Y-R*0.22-EyeSz, X+R*0.42+EyeSz, Y-R*0.22+EyeSz), Alpha);
+  // Mouth
+  if Expr = 2 then
+  begin
+    MouthR := R * 0.2;
+    C.Fill.Color := RGB(200, 65, 65);
+    C.FillEllipse(TRectF.Create(X-MouthR, Y+R*0.22-MouthR, X+MouthR, Y+R*0.22+MouthR), Alpha);
+  end else
+  begin
+    Path := TPathData.Create;
+    try
+      Path.MoveTo(TPointF.Create(X-R*0.38, Y+R*0.18));
+      Path.CurveTo(
+        TPointF.Create(X-R*0.28, Y+R*0.52),
+        TPointF.Create(X+R*0.28, Y+R*0.52),
+        TPointF.Create(X+R*0.38, Y+R*0.18));
+      C.Stroke.Color := RGB(200, 65, 65); C.Stroke.Thickness := 2.5;
+      C.DrawPath(Path, Alpha);
+    finally Path.Free; end;
+  end;
+end;
+
+procedure DrawAnimGhost(C: TCanvas; X, Y, R, T, Alpha: Single);
+const NBumps = 4;
+var
+  I: Integer;
+  BodyBot, BumpW, BX1, BX2, BumpH, BMidY, ER: Single;
+  Path: TPathData;
+  Blink: Boolean;
+begin
+  Blink   := Frac(T / 55.0) > 0.90;
+  BodyBot := Y + R * 0.32;
+  BumpW   := (2 * R) / NBumps;
+  Path := TPathData.Create;
+  try
+    Path.MoveTo(TPointF.Create(X-R, BodyBot));
+    Path.LineTo(TPointF.Create(X-R, Y-R*0.2));
+    Path.CurveTo(
+      TPointF.Create(X-R, Y-R*1.45),
+      TPointF.Create(X+R, Y-R*1.45),
+      TPointF.Create(X+R, Y-R*0.2));
+    Path.LineTo(TPointF.Create(X+R, BodyBot));
+    for I := 0 to NBumps-1 do
+    begin
+      BX1   := X+R - I*BumpW;
+      BX2   := BX1 - BumpW;
+      BumpH := R*0.38 + Sin(T*0.055 + I*1.4)*R*0.13;
+      BMidY := BodyBot + BumpH;
+      Path.CurveTo(
+        TPointF.Create(BX1-BumpW*0.22, BMidY),
+        TPointF.Create(BX2+BumpW*0.22, BMidY),
+        TPointF.Create(BX2, BodyBot));
+    end;
+    Path.ClosePath;
+    C.Fill.Kind := TBrushKind.Solid;
+    C.Fill.Color := RGB(225, 230, 255);
+    C.FillPath(Path, Alpha * 0.93);
+    C.Stroke.Kind := TBrushKind.Solid;
+    C.Stroke.Color := RGB(165, 170, 220); C.Stroke.Thickness := 1.5;
+    C.DrawPath(Path, Alpha * 0.6);
+  finally Path.Free; end;
+  ER := R * 0.13;
+  C.Fill.Kind := TBrushKind.Solid; C.Stroke.Kind := TBrushKind.Solid;
+  if Blink then
+  begin
+    C.Stroke.Color := RGB(50, 30, 100); C.Stroke.Thickness := 2.5;
+    C.DrawLine(TPointF.Create(X-R*0.40, Y-R*0.58), TPointF.Create(X-R*0.15, Y-R*0.58), Alpha);
+    C.DrawLine(TPointF.Create(X+R*0.15, Y-R*0.58), TPointF.Create(X+R*0.40, Y-R*0.58), Alpha);
+  end else
+  begin
+    C.Fill.Color := RGB(50, 30, 100);
+    C.FillEllipse(TRectF.Create(X-R*0.35-ER, Y-R*0.63-ER, X-R*0.35+ER, Y-R*0.63+ER), Alpha);
+    C.FillEllipse(TRectF.Create(X+R*0.35-ER, Y-R*0.63-ER, X+R*0.35+ER, Y-R*0.63+ER), Alpha);
+    ER := ER * 0.42;
+    C.Fill.Color := TAlphaColors.White;
+    C.FillEllipse(TRectF.Create(X-R*0.29-ER, Y-R*0.69-ER, X-R*0.29+ER, Y-R*0.69+ER), Alpha);
+    C.FillEllipse(TRectF.Create(X+R*0.41-ER, Y-R*0.69-ER, X+R*0.41+ER, Y-R*0.69+ER), Alpha);
+  end;
 end;
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -495,11 +693,16 @@ var
 begin
   inherited Create;
   FSW      := SW; FSH := SH;
-  FSprIdx  := Random(100);
+  FSprIdx  := Random(103);
   FScl     := 0.8 + Random * 0.6;
   FMass    := SPR_MASS10[FSprIdx] / 10.0;
   FRadius  := 20 * FScl;
   FT       := Random * 300;
+  FAngle      := Random * 2 * Pi;
+  FPulseT     := Random * 200;
+  FMorphAlpha := -1;
+  FMorphTimer := 1800 + Random(1800); // 30-60 s at 60 fps
+  FMorphTarget := 0;
   FHopTimer := 0;
   Spd := 1.5 + Random * 2.0;
   if Scatter then
@@ -523,6 +726,30 @@ procedure TSprite.Update;
 var
   Spd: Single;
 begin
+  // Visual animation
+  FAngle  := FAngle + SpinRate(FSprIdx);
+  FPulseT := FPulseT + 1;
+  // Morph countdown
+  if FMorphAlpha < 0 then
+  begin
+    Dec(FMorphTimer);
+    if FMorphTimer <= 0 then
+    begin
+      repeat FMorphTarget := Random(103) until FMorphTarget <> FSprIdx;
+      FMorphAlpha := 0;
+    end;
+  end else
+  begin
+    FMorphAlpha := FMorphAlpha + 1/60.0;
+    if FMorphAlpha >= 1.0 then
+    begin
+      FSprIdx     := FMorphTarget;
+      FMass       := SPR_MASS10[FSprIdx] / 10.0;
+      FMorphAlpha := -1;
+      FMorphTimer := 1800 + Random(1800);
+    end;
+  end;
+  // Physics
   case SPR_BEHAV[FSprIdx] of
     1:
     begin
@@ -549,11 +776,39 @@ begin
 end;
 
 procedure TSprite.Draw(C: TCanvas);
-var
-  Sz: Single;
 begin
-  Sz := Round(36 * FScl);
-  C.Font.Size   := Sz;
+  if FMorphAlpha < 0 then
+    DrawAt(C, FSprIdx, 1.0)
+  else
+  begin
+    DrawAt(C, FSprIdx,      1.0 - FMorphAlpha);
+    DrawAt(C, FMorphTarget, FMorphAlpha);
+  end;
+end;
+
+procedure TSprite.DrawAt(C: TCanvas; SprIdx: Integer; Alpha: Single);
+var
+  Sz, Scale: Single;
+  M, SaveM: TMatrix;
+begin
+  if Alpha < 0.01 then Exit;
+  Scale := 1.0;
+  if HasPulse(SprIdx) then
+    Scale := 1.0 + 0.15 * Sin(FPulseT * 0.07);
+  // Custom drawn sprites
+  if SprIdx >= 100 then
+  begin
+    Sz := FScl * 28 * Scale;
+    case SprIdx of
+      100: DrawAnimStar(C, FX, FY, Sz,        FAngle, FT, Alpha);
+      101: DrawAnimFace(C, FX, FY, Sz * 0.88, FT,         Alpha);
+      102: DrawAnimGhost(C, FX, FY, Sz,        FT,         Alpha);
+    end;
+    Exit;
+  end;
+  // Emoji sprite
+  Sz := Round(36 * FScl * Scale);
+  C.Font.Size := Sz;
   {$IFDEF MSWINDOWS}
   C.Font.Family := 'Segoe UI Emoji';
   {$ELSE}
@@ -561,9 +816,19 @@ begin
   {$ENDIF}
   C.Fill.Kind  := TBrushKind.Solid;
   C.Fill.Color := TAlphaColors.White;
-  C.FillText(
-    TRectF.Create(FX - Sz, FY - Sz, FX + Sz, FY + Sz),
-    SPR_EMOJI[FSprIdx], False, 1.0, [], TTextAlign.Center, TTextAlign.Center);
+  if SpinRate(SprIdx) > 0 then
+  begin
+    SaveM := C.Matrix;
+    M.m11 :=  Cos(FAngle); M.m12 := Sin(FAngle); M.m13 := 0;
+    M.m21 := -Sin(FAngle); M.m22 := Cos(FAngle); M.m23 := 0;
+    M.m31 := FX;           M.m32 := FY;           M.m33 := 1;
+    C.SetMatrix(M * SaveM);
+    C.FillText(TRectF.Create(-Sz, -Sz, Sz, Sz),
+      SPR_EMOJI[SprIdx], False, Alpha, [], TTextAlign.Center, TTextAlign.Center);
+    C.SetMatrix(SaveM);
+  end else
+    C.FillText(TRectF.Create(FX-Sz, FY-Sz, FX+Sz, FY+Sz),
+      SPR_EMOJI[SprIdx], False, Alpha, [], TTextAlign.Center, TTextAlign.Center);
 end;
 
 function TSprite.Offscreen: Boolean;
