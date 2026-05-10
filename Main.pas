@@ -103,7 +103,7 @@ type
   private
     FTimer:   TTimer;
     FPBox:    TPaintBox;
-    FAddBtn, FRemBtn: TButton;
+    FAddBtn, FRemBtn, FAddSprBtn, FRemSprBtn: TButton;
     FCountLbl: TLabel;
     FBtnLayout: TLayout;
     FWorms:   TObjectList<TWorm>;
@@ -114,10 +114,15 @@ type
     procedure OnPaint(Sender: TObject; Canvas: TCanvas);
     procedure AddWorm;
     procedure RemoveWorm;
+    procedure AddSprite;
+    procedure RemoveSprite;
     procedure UpdateCount;
     procedure BtnAddClick(Sender: TObject);
     procedure BtnRemClick(Sender: TObject);
+    procedure BtnAddSprClick(Sender: TObject);
+    procedure BtnRemSprClick(Sender: TObject);
     procedure ResolveCollision(A, B: TSprite);
+    procedure ApplyShockwave(X, Y: Single);
   public
     constructor Create(AOwner: TComponent); override;
     destructor  Destroy; override;
@@ -704,7 +709,7 @@ begin
   FMorphTimer := 1800 + Random(1800); // 30-60 s at 60 fps
   FMorphTarget := 0;
   FHopTimer := 0;
-  Spd := 1.5 + Random * 2.0;
+  Spd := 0.75 + Random * 1.0;
   if Scatter then
   begin
     FX := FRadius + Random * (SW - FRadius * 2);
@@ -718,7 +723,7 @@ begin
     FX  := IfThen(GoRight, -80, SW + 80);
     FY  := 80 + Random * (SH - 160);
     FVX := IfThen(GoRight, Spd, -Spd);
-    FVY := (Random - 0.5) * 1.5;
+    FVY := (Random - 0.5) * 0.75;
   end;
 end;
 
@@ -753,19 +758,19 @@ begin
   case SPR_BEHAV[FSprIdx] of
     1:
     begin
-      FVY := FVY + 0.06;
+      FVY := FVY + 0.03;
       Inc(FHopTimer);
       if FHopTimer > 65 + Random(40) then
       begin
-        FVY := FVY - (4 + Random * 2);
+        FVY := FVY - (2 + Random * 1);
         FHopTimer := 0;
       end;
     end;
     0:
-      FVY := FVY + Sin(FT * 0.05) * 0.06;
+      FVY := FVY + Sin(FT * 0.05) * 0.03;
   end;
   Spd := Sqrt(FVX * FVX + FVY * FVY);
-  if Spd > 7 then begin FVX := FVX / Spd * 7; FVY := FVY / Spd * 7; end;
+  if Spd > 3.5 then begin FVX := FVX / Spd * 3.5; FVY := FVY / Spd * 3.5; end;
   FX := FX + FVX;
   FY := FY + FVY;
   FT := FT + 1;
@@ -865,21 +870,39 @@ begin
 
   FRemBtn             := TButton.Create(Self);
   FRemBtn.Parent      := FBtnLayout;
-  FRemBtn.Text        := '− Remove';
-  FRemBtn.Width       := 120;
+  FRemBtn.Text        := '− Ribbon';
+  FRemBtn.Width       := 110;
   FRemBtn.Height      := 40;
-  FRemBtn.Position.X  := Screen.WorkAreaWidth / 2 - 135;
+  FRemBtn.Position.X  := Screen.WorkAreaWidth / 2 - 240;
   FRemBtn.Position.Y  := 10;
   FRemBtn.OnClick     := BtnRemClick;
 
   FAddBtn             := TButton.Create(Self);
   FAddBtn.Parent      := FBtnLayout;
-  FAddBtn.Text        := '+ Add';
-  FAddBtn.Width       := 120;
+  FAddBtn.Text        := '+ Ribbon';
+  FAddBtn.Width       := 110;
   FAddBtn.Height      := 40;
-  FAddBtn.Position.X  := Screen.WorkAreaWidth / 2 + 15;
+  FAddBtn.Position.X  := Screen.WorkAreaWidth / 2 - 120;
   FAddBtn.Position.Y  := 10;
   FAddBtn.OnClick     := BtnAddClick;
+
+  FRemSprBtn             := TButton.Create(Self);
+  FRemSprBtn.Parent      := FBtnLayout;
+  FRemSprBtn.Text        := '− Sprite';
+  FRemSprBtn.Width       := 110;
+  FRemSprBtn.Height      := 40;
+  FRemSprBtn.Position.X  := Screen.WorkAreaWidth / 2 + 10;
+  FRemSprBtn.Position.Y  := 10;
+  FRemSprBtn.OnClick     := BtnRemSprClick;
+
+  FAddSprBtn             := TButton.Create(Self);
+  FAddSprBtn.Parent      := FBtnLayout;
+  FAddSprBtn.Text        := '+ Sprite';
+  FAddSprBtn.Width       := 110;
+  FAddSprBtn.Height      := 40;
+  FAddSprBtn.Position.X  := Screen.WorkAreaWidth / 2 + 130;
+  FAddSprBtn.Position.Y  := 10;
+  FAddSprBtn.OnClick     := BtnAddSprClick;
 
   FCountLbl               := TLabel.Create(Self);
   FCountLbl.Parent        := Self;
@@ -936,14 +959,53 @@ begin
   end;
 end;
 
-procedure TMainForm.UpdateCount;
+procedure TMainForm.AddSprite;
 begin
-  FCountLbl.Text := Format('%d ribbon%s', [FWorms.Count,
-    IfThen(FWorms.Count <> 1, 's', '')]);
+  FSprites.Add(TSprite.Create(Screen.WorkAreaWidth, Screen.WorkAreaHeight, True));
+  UpdateCount;
 end;
 
-procedure TMainForm.BtnAddClick(Sender: TObject); begin AddWorm; end;
-procedure TMainForm.BtnRemClick(Sender: TObject); begin RemoveWorm; end;
+procedure TMainForm.RemoveSprite;
+begin
+  if FSprites.Count > 0 then
+  begin
+    FSprites.Delete(FSprites.Count - 1);
+    UpdateCount;
+  end;
+end;
+
+procedure TMainForm.UpdateCount;
+begin
+  FCountLbl.Text := Format('%d ribbon%s · %d sprite%s',
+    [FWorms.Count,   IfThen(FWorms.Count   <> 1, 's', ''),
+     FSprites.Count, IfThen(FSprites.Count <> 1, 's', '')]);
+end;
+
+procedure TMainForm.BtnAddClick(Sender: TObject);    begin AddWorm;      end;
+procedure TMainForm.BtnRemClick(Sender: TObject);    begin RemoveWorm;   end;
+procedure TMainForm.BtnAddSprClick(Sender: TObject); begin AddSprite;    end;
+procedure TMainForm.BtnRemSprClick(Sender: TObject); begin RemoveSprite; end;
+
+procedure TMainForm.ApplyShockwave(X, Y: Single);
+const
+  RADIUS   = 220.0;
+  STRENGTH = 4.0;
+var
+  Sp: TSprite;
+  DX, DY, Dist, F: Single;
+begin
+  for Sp in FSprites do
+  begin
+    DX := Sp.X - X; DY := Sp.Y - Y;
+    Dist := Sqrt(DX * DX + DY * DY);
+    if (Dist > 0.5) and (Dist < RADIUS) then
+    begin
+      F := STRENGTH * (1 - Dist / RADIUS);
+      Sp.VX := Sp.VX + F * DX / Dist;
+      Sp.VY := Sp.VY + F * DY / Dist;
+    end;
+  end;
+end;
 
 procedure TMainForm.ResolveCollision(A, B: TSprite);
 const E = 0.82;
@@ -990,6 +1052,7 @@ begin
         Idx := Random(W.Trail.Count);
         Pt  := W.Trail[Idx];
         FFW.Add(TFirework.Create(Pt.X, Pt.Y, W.ColorR, W.ColorG, W.ColorB));
+        ApplyShockwave(Pt.X, Pt.Y);
       end;
     end;
   end;
