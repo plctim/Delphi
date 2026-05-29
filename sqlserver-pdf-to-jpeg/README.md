@@ -127,7 +127,15 @@ extension (per the Microsoft data-type mapping).
   `WITH RESULT SETS` clause already declares `VARBINARY(MAX)`.
 - **Memory** — large or high-DPI PDFs are memory-heavy. The extension runs under the
   *external resource pool*; raise its `MAX_MEMORY_PERCENT` if you see allocation failures.
-- **Permissions** — the principal running the proc needs `EXECUTE ANY EXTERNAL SCRIPT`.
+- **Permissions (SQL)** — the principal running the proc needs `EXECUTE ANY EXTERNAL SCRIPT`.
+- **`Could not initialize class sun.security.jca.Providers` / `NoClassDefFoundError` during jar verification** — the Java extension runs in an AppContainer sandbox that lacks read/execute on your JDK folder, so the JVM can't load its own security config. Grant the AppContainer SID access to the **JDK** directory and restart Launchpad:
+
+  ```bat
+  icacls "C:\Program Files\Microsoft\jdk-XX.X.X-hotspot" /grant *S-1-15-2-1:(OI)(CI)RX /T
+  net stop "SQL Server Launchpad (MSSQLSERVER)" && net start "SQL Server Launchpad (MSSQLSERVER)"
+  ```
+  (`*S-1-15-2-1` = ALL APPLICATION PACKAGES, locale-independent. Use your instance's Launchpad service name.)
+- **Supported JDK** — the Java extension is validated against **JDK 11 / 17**. Newer releases (e.g. 25) can fail in the sandbox; if so, install Microsoft OpenJDK **17**, set `JRE_HOME` to it, grant the same `icacls`, and restart Launchpad.
 - **Not tested in this environment** — these files were scaffolded but not compiled or run
   against a live SQL Server instance here. Build with `mvn package` and run `sql/04_demo.sql`
   against a 2019+ instance to validate end-to-end.
