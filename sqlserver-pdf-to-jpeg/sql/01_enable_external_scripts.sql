@@ -33,7 +33,7 @@ Find the MSSQL17.MSSQLSERVER Folder for later is it isn't in the default folder
 https://github.com/microsoft/sql-server-language-extensions/releases
 Download java-lang-extension-windows-release.zip and rename to java-lang-extension.zip
 Then copy to C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\
-
+Next, upzip java-lang-extension.zip and place the  dll and jar file into the Binn folder
 */
 
 /* If the SELECT above returns no rows, register Java once (adjust the path to
