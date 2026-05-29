@@ -47,7 +47,7 @@ dependency. Install it into your local Maven repo once (adjust the path/instance
 
 ```bat
 mvn install:install-file ^
-  -Dfile="C:\Program Files\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar" ^
+  -Dfile="C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar" ^
   -DgroupId=com.microsoft.sqlserver ^
   -DartifactId=mssql-java-lang-extension ^
   -Dversion=1.0 ^
