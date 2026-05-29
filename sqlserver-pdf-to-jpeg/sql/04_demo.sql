@@ -19,7 +19,7 @@ END
 GO
 
 -- Load a PDF from disk into the column (path must be readable by the SQL service account).
-INSERT dbo.Documents (FileName, PdfBytes)
+INSERT into Documents (FileName, PdfBytes)
 SELECT N'sample.pdf', BulkColumn
 FROM OPENROWSET(BULK N'C:\Temp\sample.pdf', SINGLE_BLOB) AS src;
 GO
