@@ -28,6 +28,8 @@ GO
        CONTENT at it. (The bytes are stored inside the database, so the path is
        only read at CREATE/ALTER time.)
    ---------------------------------------------------------------------------- */
+DROP EXTERNAL LIBRARY [pdf-to-jpeg]
+
 CREATE EXTERNAL LIBRARY [pdf-to-jpeg]
 FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\pdf-to-jpeg.jar')
 WITH (LANGUAGE = 'Java');
