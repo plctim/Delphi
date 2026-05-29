@@ -23,11 +23,9 @@ WHERE name = N'Java';
 GO
 
 /*
-Download one of these installers and install.
+Download one of these installers and install 17 maximum.
 https://learn.microsoft.com/en-us/java/openjdk/download
-microsoft-jdk-25.0.3-windows-x64.exe
-microsoft-jdk-25.0.3-windows-x64.msi
-
+microsoft-jdk-17.0.19-windows-x64.msi
 
 Find the MSSQL17.MSSQLSERVER Folder for later is it isn't in the default folder
 https://github.com/microsoft/sql-server-language-extensions/releases
