@@ -29,14 +29,14 @@ GO
        only read at CREATE/ALTER time.)
    ---------------------------------------------------------------------------- */
 CREATE EXTERNAL LIBRARY [pdf-to-jpeg]
-FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\PLCPdfToJPeg\pdf-to-jpeg.jar')
+FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\pdf-to-jpeg.jar')
 WITH (LANGUAGE = 'Java');
 GO
 
 /* To deploy a rebuilt jar later, use ALTER instead of CREATE:
 
 ALTER EXTERNAL LIBRARY [pdf-to-jpeg]
-FROM (CONTENT = N'C:\Deploy\pdf-to-jpeg.jar')
+FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\pdf-to-jpeg.jar')
 WITH (LANGUAGE = 'Java');
 GO
 */
