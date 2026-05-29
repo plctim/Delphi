@@ -60,7 +60,10 @@ public class PdfToJpeg extends AbstractSqlServerExtensionExecutor {
         executorOutputDatasetClassName = PrimitiveDataset.class.getName();
     }
 
-    @Override
+    // NOTE: intentionally NOT @Override. The SDK base method is
+    // execute(AbstractSqlServerExtensionDataset, ...); this PrimitiveDataset
+    // overload is located and invoked reflectively by the extension based on
+    // executorInputDatasetClassName / executorOutputDatasetClassName.
     public PrimitiveDataset execute(PrimitiveDataset input, LinkedHashMap<String, Object> params) {
         validateInput(input);
 
