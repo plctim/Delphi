@@ -16,6 +16,7 @@ GO
        Some installations already expose the SDK to the runtime; if CREATE fails
        saying it already exists, you can skip this block.
    ---------------------------------------------------------------------------- */
+DROP EXTERNAL LIBRARY [mssql-java-lang-extension]   ;
 CREATE EXTERNAL LIBRARY [mssql-java-lang-extension]
 FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar')
 WITH (LANGUAGE = 'Java');
@@ -28,7 +29,7 @@ GO
        CONTENT at it. (The bytes are stored inside the database, so the path is
        only read at CREATE/ALTER time.)
    ---------------------------------------------------------------------------- */
-DROP EXTERNAL LIBRARY [pdf-to-jpeg]
+DROP EXTERNAL LIBRARY [pdf-to-jpeg];
 
 CREATE EXTERNAL LIBRARY [pdf-to-jpeg]
 FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\pdf-to-jpeg.jar')
