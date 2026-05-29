@@ -17,7 +17,7 @@ GO
        saying it already exists, you can skip this block.
    ---------------------------------------------------------------------------- */
 CREATE EXTERNAL LIBRARY [mssql-java-lang-extension]
-FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar')
+FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar')
 WITH (LANGUAGE = 'Java');
 GO
 
