@@ -18,7 +18,7 @@ GO
    ---------------------------------------------------------------------------- */
 DROP EXTERNAL LIBRARY [mssql-java-lang-extension]   ;
 CREATE EXTERNAL LIBRARY [mssql-java-lang-extension]
-FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar')
+FROM (CONTENT = N'C:\PlcPdfHelper\mssql-java-lang-extension.jar')
 WITH (LANGUAGE = 'Java');
 GO
 
@@ -32,14 +32,14 @@ GO
 DROP EXTERNAL LIBRARY [pdf-to-jpeg];
 
 CREATE EXTERNAL LIBRARY [pdf-to-jpeg]
-FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\pdf-to-jpeg.jar')
+FROM (CONTENT = N'C:\PlcPdfHelper\pdf-to-jpeg.jar')
 WITH (LANGUAGE = 'Java');
 GO
 
 /* To deploy a rebuilt jar later, use ALTER instead of CREATE:
 
 ALTER EXTERNAL LIBRARY [pdf-to-jpeg]
-FROM (CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\pdf-to-jpeg.jar')
+FROM (CONTENT = N'C:\PlcPdfHelper\pdf-to-jpeg.jar')
 WITH (LANGUAGE = 'Java');
 GO
 */
