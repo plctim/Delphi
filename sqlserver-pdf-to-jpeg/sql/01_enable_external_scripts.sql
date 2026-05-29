@@ -22,13 +22,28 @@ FROM sys.external_languages
 WHERE name = N'Java';
 GO
 
+/*
+Download one of these installers and install.
+https://learn.microsoft.com/en-us/java/openjdk/download
+microsoft-jdk-25.0.3-windows-x64.exe
+microsoft-jdk-25.0.3-windows-x64.msi
+
+
+Find the MSSQL17.MSSQLSERVER Folder for later is it isn't in the default folder
+https://github.com/microsoft/sql-server-language-extensions/releases
+Download java-lang-extension-windows-release.zip and rename to java-lang-extension.zip
+Then copy to C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\
+
+*/
+
 /* If the SELECT above returns no rows, register Java once (adjust the path to
    your instance's Binn folder, e.g. MSSQL16.MSSQLSERVER for SQL 2022):
 
 CREATE EXTERNAL LANGUAGE Java
 FROM (
-    CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQL\Binn\java-lang-extension.zip',
+    CONTENT = N'C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Binn\java-lang-extension.zip',
     FILE_NAME = N'javaextension.dll'
 );
 GO
 */
+
