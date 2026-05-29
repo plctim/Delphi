@@ -37,7 +37,7 @@ Next, upzip java-lang-extension.zip and place the  dll and jar file into the Bin
 */
 
 /* If the SELECT above returns no rows, register Java once (adjust the path to
-   your instance's Binn folder, e.g. MSSQL16.MSSQLSERVER for SQL 2022):
+   your instance's Binn folder, e.g. MSSQL17.MSSQLSERVER for SQL 2022):
 
 CREATE EXTERNAL LANGUAGE Java
 FROM (
