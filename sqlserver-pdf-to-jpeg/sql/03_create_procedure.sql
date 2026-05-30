@@ -27,7 +27,8 @@ BEGIN
         (
             DocId      INT,
             PageNumber INT,
-            JpegBytes  VARBINARY(MAX)
+            JpegBytes  VARBINARY(MAX),
+            PageText   NVARCHAR(MAX)
         )
     );
 END

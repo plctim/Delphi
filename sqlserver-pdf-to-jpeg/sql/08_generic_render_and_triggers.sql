@@ -60,8 +60,16 @@ BEGIN
             KeyValue   INT            NOT NULL,
             PageNumber INT            NOT NULL,
             JpegBytes  VARBINARY(MAX) NOT NULL,
+            PageText   NVARCHAR(MAX)  NULL,
             RenderedAt DATETIME2      NOT NULL CONSTRAINT ' + QUOTENAME(N'DF_' + @TargetTable + N'_RenderedAt') + N' DEFAULT SYSUTCDATETIME(),
             CONSTRAINT ' + QUOTENAME(N'PK_' + @TargetTable) + N' PRIMARY KEY (KeyValue, PageNumber));';
+        EXEC sys.sp_executesql @sql;
+    END
+    ELSE IF NOT EXISTS (SELECT 1 FROM sys.columns
+                        WHERE object_id = OBJECT_ID(@tgt) AND name = N'PageText')
+    BEGIN
+        -- Upgrade an older target table created before text extraction existed.
+        SET @sql = N'ALTER TABLE ' + @tgt + N' ADD PageText NVARCHAR(MAX) NULL;';
         EXEC sys.sp_executesql @sql;
     END
 
@@ -76,11 +84,11 @@ BEGIN
         N' WHERE ' + @p + N' IS NOT NULL' + @scope + N';';
 
     SET @sql = N'
-        INSERT INTO ' + @tgt + N' (KeyValue, PageNumber, JpegBytes)
+        INSERT INTO ' + @tgt + N' (KeyValue, PageNumber, JpegBytes, PageText)
         EXEC sp_execute_external_script
             @language = N''Java'', @script = N''com.porterlee.pdf.PdfToJpeg'',
             @input_data_1 = @iq, @params = N''@dpi INT'', @dpi = @dpi
-        WITH RESULT SETS ((KeyValue INT, PageNumber INT, JpegBytes VARBINARY(MAX)));';
+        WITH RESULT SETS ((KeyValue INT, PageNumber INT, JpegBytes VARBINARY(MAX), PageText NVARCHAR(MAX)));';
     EXEC sys.sp_executesql @sql, N'@iq NVARCHAR(MAX), @dpi INT', @iq = @inputQuery, @dpi = @Dpi;
 END
 GO
