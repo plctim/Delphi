@@ -37,7 +37,13 @@ import java.util.List;
  *   <li>{@code PageText}   - NVARCHAR(MAX) (empty for pages with no text layer, e.g. scans)</li>
  * </ol>
  *
- * <p><b>Parameters</b> ({@code @params}): {@code @dpi INT} - optional render resolution (default 150).</p>
+ * <p><b>Parameters</b> ({@code @params}):</p>
+ * <ul>
+ *   <li>{@code @dpi INT}          - optional render resolution (default 150).</li>
+ *   <li>{@code @renderImage BIT}  - optional; when 0, JpegBytes is NULL and no image is rendered (default 1).</li>
+ *   <li>{@code @extractText BIT}  - optional; when 0, PageText is NULL and no text is extracted (default 1).</li>
+ * </ul>
+ * <p>If both {@code @renderImage} and {@code @extractText} are 0, an exception is thrown.</p>
  */
 public class PdfToJpeg extends AbstractSqlServerExtensionExecutor {
 
@@ -63,6 +69,14 @@ public class PdfToJpeg extends AbstractSqlServerExtensionExecutor {
         validateInput(input);
 
         float dpi = resolveDpi(params);
+        boolean renderImage = resolveFlag(params, "renderImage", true);
+        boolean extractText = resolveFlag(params, "extractText", true);
+
+        // At least one output must be requested.
+        if (!renderImage && !extractText) {
+            throw new IllegalArgumentException(
+                "Nothing to do: both @renderImage and @extractText are 0. Request at least one.");
+        }
 
         int[] docIds = input.getIntColumn(0);
         byte[][] pdfBlobs = input.getBinaryColumn(1);
@@ -79,42 +93,57 @@ public class PdfToJpeg extends AbstractSqlServerExtensionExecutor {
             if (pdf == null || pdf.length == 0) {
                 continue;
             }
-            renderDocument(docIds[row], pdf, dpi, outDocIds, outPageNumbers, outJpegs, outTexts);
+            renderDocument(docIds[row], pdf, dpi, renderImage, extractText,
+                           outDocIds, outPageNumbers, outJpegs, outTexts);
         }
 
         return buildOutput(outDocIds, outPageNumbers, outJpegs, outTexts);
     }
 
-    /** Render one PDF: append one output row per page (image + extracted text). */
+    /**
+     * Process one PDF: append one output row per page. JPEG and/or text are
+     * produced per the flags; a skipped output is left NULL.
+     */
     private void renderDocument(int docId,
                                 byte[] pdf,
                                 float dpi,
+                                boolean renderImage,
+                                boolean extractText,
                                 List<Integer> outDocIds,
                                 List<Integer> outPageNumbers,
                                 List<byte[]> outJpegs,
                                 List<String> outTexts) {
         try (PDDocument document = PDDocument.load(pdf)) {
-            PDFRenderer renderer = new PDFRenderer(document);
+            PDFRenderer renderer = renderImage ? new PDFRenderer(document) : null;
 
-            // One stripper, re-targeted per page. Sort by position for natural reading order.
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setSortByPosition(true);
+            PDFTextStripper stripper = null;
+            if (extractText) {
+                stripper = new PDFTextStripper();
+                stripper.setSortByPosition(true);   // natural reading order
+            }
 
             int pageCount = document.getNumberOfPages();
             for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-                // Image (ImageType.RGB: JPEG can't carry transparency)
-                BufferedImage image = renderer.renderImageWithDPI(pageIndex, dpi, ImageType.RGB);
-                byte[] jpeg = toJpeg(image);
+                // Image (ImageType.RGB: JPEG can't carry transparency) -- only if requested
+                byte[] jpeg = null;
+                if (renderImage) {
+                    BufferedImage image = renderer.renderImageWithDPI(pageIndex, dpi, ImageType.RGB);
+                    jpeg = toJpeg(image);
+                }
 
-                // Text for just this page (empty string if the page has no text layer)
-                stripper.setStartPage(pageIndex + 1);
-                stripper.setEndPage(pageIndex + 1);
-                String text = stripper.getText(document);
+                // Text for just this page -- only if requested (empty if no text layer)
+                String text = null;
+                if (extractText) {
+                    stripper.setStartPage(pageIndex + 1);
+                    stripper.setEndPage(pageIndex + 1);
+                    String t = stripper.getText(document);
+                    text = (t != null) ? t : "";
+                }
 
                 outDocIds.add(docId);
                 outPageNumbers.add(pageIndex + 1);
-                outJpegs.add(jpeg);
-                outTexts.add(text != null ? text : "");
+                outJpegs.add(jpeg);     // null -> SQL NULL
+                outTexts.add(text);     // null -> SQL NULL
             }
         } catch (IOException e) {
             throw new RuntimeException(
@@ -147,8 +176,8 @@ public class PdfToJpeg extends AbstractSqlServerExtensionExecutor {
         for (int i = 0; i < n; i++) {
             docIdColumn[i] = docIds.get(i);
             pageNumberColumn[i] = pageNumbers.get(i);
-            jpegColumn[i] = jpegs.get(i);
-            textColumn[i] = texts.get(i);
+            jpegColumn[i] = jpegs.get(i);   // null element -> SQL NULL (image not requested)
+            textColumn[i] = texts.get(i);   // null element -> SQL NULL (text not requested)
         }
 
         PrimitiveDataset output = new PrimitiveDataset();
@@ -173,6 +202,27 @@ public class PdfToJpeg extends AbstractSqlServerExtensionExecutor {
             }
         }
         return DEFAULT_DPI;
+    }
+
+    /**
+     * Resolve a BIT flag passed via @params. A SQL BIT arrives as Boolean, but
+     * tolerate Integer/Short (0/1) too. Missing/null falls back to the default.
+     */
+    private boolean resolveFlag(LinkedHashMap<String, Object> params, String name, boolean defaultValue) {
+        if (params == null) {
+            return defaultValue;
+        }
+        Object v = params.get(name);
+        if (v == null) {
+            return defaultValue;
+        }
+        if (v instanceof Boolean) {
+            return (Boolean) v;
+        }
+        if (v instanceof Number) {
+            return ((Number) v).intValue() != 0;
+        }
+        return defaultValue;
     }
 
     private void validateInput(PrimitiveDataset input) {

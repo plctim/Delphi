@@ -82,7 +82,7 @@ the SDK is excluded because the runtime provides it).
 ## Use
 
 ```sql
--- One row per page: DocId, PageNumber (1-based), JpegBytes (VARBINARY(MAX))
+-- One row per page: DocId, PageNumber (1-based), JpegBytes, PageText
 EXEC dbo.ConvertPdfToJpeg @DocId = 1, @Dpi = 150;
 ```
 
@@ -92,6 +92,25 @@ The proc passes the PDF in as the input dataset (`SELECT DocId, PdfBytes ...`) a
 executor emits a row per rendered page. You can feed **multiple PDFs** at once by widening
 the input query's `WHERE` clause — `DocId` is echoed on every output row so pages stay
 attributable.
+
+### Optional outputs (image and/or text)
+
+Each output is independently switchable, so you only pay for what you need:
+
+```sql
+EXEC dbo.ConvertPdfToJpeg @DocId = 1, @RenderImage = 1, @ExtractText = 1;  -- both (default)
+EXEC dbo.ConvertPdfToJpeg @DocId = 1, @ExtractText = 0;                    -- image only (PageText NULL)
+EXEC dbo.ConvertPdfToJpeg @DocId = 1, @RenderImage = 0;                    -- text only  (JpegBytes NULL)
+-- both 0 -> raises error 50005 (nothing to produce)
+```
+
+When an output is turned off, the Java code skips that work entirely and the column
+comes back `NULL`. **Text is only present for digital PDFs** (those with a real text
+layer); scanned/image pages return empty text (OCR would be a separate add-on).
+
+In the **generic** proc (`sql/08`) and the **async queue** (`sql/09`) the same choice is
+driven by *which target column names you pass*: omit `@JpegColumn` (pass `NULL`) to skip
+images, omit `@TextColumn` to skip text; passing neither raises error 50005.
 
 ---
 
@@ -104,16 +123,19 @@ attributable.
 | 0 | DocId | `INT` | `int` |
 | 1 | PdfBytes | `VARBINARY(MAX)` | `byte[]` |
 
+**Parameters** (`@params`): `@dpi INT`, `@renderImage BIT`, `@extractText BIT`.
+
 **Output dataset** (`WITH RESULT SETS`):
 
-| # | Column | SQL type |
-|---|--------|----------|
-| 0 | DocId | `INT` |
-| 1 | PageNumber | `INT` (1-based) |
-| 2 | JpegBytes | `VARBINARY(MAX)` |
+| # | Column | SQL type | Notes |
+|---|--------|----------|-------|
+| 0 | DocId | `INT` | |
+| 1 | PageNumber | `INT` (1-based) | |
+| 2 | JpegBytes | `VARBINARY(MAX)` | `NULL` when image rendering is off |
+| 3 | PageText | `NVARCHAR(MAX)` | `NULL` when text extraction is off; empty for pages with no text layer |
 
-`VARBINARY(MAX)` ↔ `byte[]` is supported for both input and output datasets in the Java
-extension (per the Microsoft data-type mapping).
+`VARBINARY(MAX)` ↔ `byte[]` and `NVARCHAR(MAX)` ↔ `String` are supported for both input and
+output datasets in the Java extension (per the Microsoft data-type mapping).
 
 ---
 

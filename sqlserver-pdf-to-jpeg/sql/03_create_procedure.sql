@@ -8,11 +8,17 @@ USE [YourDatabase];   -- <-- change to your database
 GO
 
 CREATE OR ALTER PROCEDURE dbo.ConvertPdfToJpeg
-    @DocId INT,
-    @Dpi   INT = 150
+    @DocId       INT,
+    @Dpi         INT = 150,
+    @RenderImage BIT = 1,   -- 0 => JpegBytes returned as NULL, no image rendered
+    @ExtractText BIT = 1    -- 0 => PageText returned as NULL, no text extracted
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    -- At least one output must be requested.
+    IF @RenderImage = 0 AND @ExtractText = 0
+        THROW 50005, 'Nothing to produce: both @RenderImage and @ExtractText are 0.', 1;
 
     EXEC sp_execute_external_script
         @language     = N'Java',
@@ -20,15 +26,17 @@ BEGIN
         -- The input query becomes the executor's input dataset.
         -- @id is supplied through @params below.
         @input_data_1 = N'SELECT DocId, PdfBytes FROM dbo.Documents WHERE DocId = @id',
-        @params       = N'@id INT, @dpi INT',
+        @params       = N'@id INT, @dpi INT, @renderImage BIT, @extractText BIT',
         @id           = @DocId,
-        @dpi          = @Dpi
+        @dpi          = @Dpi,
+        @renderImage  = @RenderImage,
+        @extractText  = @ExtractText
     WITH RESULT SETS (
         (
             DocId      INT,
             PageNumber INT,
-            JpegBytes  VARBINARY(MAX),
-            PageText   NVARCHAR(MAX)
+            JpegBytes  VARBINARY(MAX),   -- NULL when @RenderImage = 0
+            PageText   NVARCHAR(MAX)     -- NULL when @ExtractText = 0
         )
     );
 END

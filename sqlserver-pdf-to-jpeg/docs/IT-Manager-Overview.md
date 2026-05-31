@@ -1,11 +1,16 @@
 # PDF → JPEG in SQL Server — Overview for the SQL Server IT Manager
 
 ## What it does
-Converts PDF files that are stored in a database column (`VARBINARY(MAX)`) into
-one JPEG image **per page**, entirely inside SQL Server. Results are returned as
-a normal result set / cached in a table as `(KeyValue, PageNumber, JpegBytes)`.
-It works for **any table** that holds PDFs — the source table, key column, PDF
-column, and output table are all parameters.
+Converts PDF files that are stored in a database column (`VARBINARY(MAX)`) into,
+**per page**, a JPEG image and/or the page's extracted text — entirely inside
+SQL Server. Results are returned as a normal result set / cached in a table as
+`(KeyValue, PageNumber, JpegBytes, PageText)`. The image and the text are each
+**optional**: a caller can request image only, text only, or both (requesting
+neither is rejected). It works for **any table** that holds PDFs — the source
+table, key column, PDF column, and output table are all parameters.
+
+Note: text extraction works for **digital PDFs** (with a selectable text layer);
+scanned/image-only PDFs return empty text and would require OCR (a separate add-on).
 
 ## How it works
 - Uses the built-in **SQL Server Java Language Extension** (`sp_execute_external_script`).

@@ -35,6 +35,8 @@ CREATE TABLE dbo.PdfRenderQueue
     TargetTable  SYSNAME   NOT NULL,
     KeyValue     INT       NOT NULL,
     Dpi          INT       NOT NULL CONSTRAINT DF_PdfRenderQueue_Dpi DEFAULT 150,
+    JpegColumn   SYSNAME   NULL CONSTRAINT DF_PdfRenderQueue_JpegCol DEFAULT N'JpegBytes', -- NULL = skip image
+    TextColumn   SYSNAME   NULL CONSTRAINT DF_PdfRenderQueue_TextCol DEFAULT N'PageText',  -- NULL = skip text
     EnqueuedAt   DATETIME2 NOT NULL CONSTRAINT DF_PdfRenderQueue_EnqueuedAt DEFAULT SYSUTCDATETIME()
 );
 GO
@@ -46,6 +48,7 @@ CREATE TABLE dbo.PdfRenderDeadLetter
     DeadLetterId BIGINT IDENTITY(1,1) PRIMARY KEY,
     SourceSchema SYSNAME, SourceTable SYSNAME, KeyColumn SYSNAME, PdfColumn SYSNAME,
     TargetSchema SYSNAME, TargetTable SYSNAME, KeyValue INT, Dpi INT,
+    JpegColumn SYSNAME NULL, TextColumn SYSNAME NULL,
     FailedAt     DATETIME2 NOT NULL CONSTRAINT DF_PdfRenderDeadLetter_FailedAt DEFAULT SYSUTCDATETIME(),
     ErrorMessage NVARCHAR(4000)
 );
@@ -65,7 +68,8 @@ BEGIN
     DECLARE @claim TABLE
     (
         QueueId BIGINT, SourceSchema SYSNAME, SourceTable SYSNAME, KeyColumn SYSNAME,
-        PdfColumn SYSNAME, TargetSchema SYSNAME, TargetTable SYSNAME, KeyValue INT, Dpi INT
+        PdfColumn SYSNAME, TargetSchema SYSNAME, TargetTable SYSNAME, KeyValue INT, Dpi INT,
+        JpegColumn SYSNAME NULL, TextColumn SYSNAME NULL
     );
 
     -- Atomically dequeue up to @MaxRows (delete + capture in one statement).
@@ -76,45 +80,53 @@ BEGIN
     )
     DELETE FROM c
     OUTPUT deleted.QueueId, deleted.SourceSchema, deleted.SourceTable, deleted.KeyColumn,
-           deleted.PdfColumn, deleted.TargetSchema, deleted.TargetTable, deleted.KeyValue, deleted.Dpi
+           deleted.PdfColumn, deleted.TargetSchema, deleted.TargetTable, deleted.KeyValue, deleted.Dpi,
+           deleted.JpegColumn, deleted.TextColumn
     INTO @claim;
 
     IF NOT EXISTS (SELECT 1 FROM @claim) RETURN;
 
     DECLARE @SourceSchema SYSNAME, @SourceTable SYSNAME, @KeyColumn SYSNAME, @PdfColumn SYSNAME,
-            @TargetSchema SYSNAME, @TargetTable SYSNAME, @Dpi INT, @keys NVARCHAR(MAX);
+            @TargetSchema SYSNAME, @TargetTable SYSNAME, @Dpi INT,
+            @JpegColumn SYSNAME, @TextColumn SYSNAME, @keys NVARCHAR(MAX);
 
+    -- Group by the full recipe (including the optional output columns). JpegColumn/
+    -- TextColumn may be NULL, so match them null-safely via INTERSECT below.
     DECLARE grp CURSOR LOCAL FAST_FORWARD FOR
-        SELECT DISTINCT SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, Dpi
+        SELECT DISTINCT SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, Dpi, JpegColumn, TextColumn
         FROM @claim;
 
     OPEN grp;
-    FETCH NEXT FROM grp INTO @SourceSchema, @SourceTable, @KeyColumn, @PdfColumn, @TargetSchema, @TargetTable, @Dpi;
+    FETCH NEXT FROM grp INTO @SourceSchema, @SourceTable, @KeyColumn, @PdfColumn, @TargetSchema, @TargetTable, @Dpi, @JpegColumn, @TextColumn;
     WHILE @@FETCH_STATUS = 0
     BEGIN
         -- NVARCHAR(MAX) convert forces a MAX-typed result so large batches don't truncate.
+        -- INTERSECT gives null-safe equality across the whole recipe.
         SELECT @keys = STRING_AGG(CONVERT(NVARCHAR(MAX), KeyValue), N',')
         FROM @claim
-        WHERE SourceSchema = @SourceSchema AND SourceTable = @SourceTable AND KeyColumn = @KeyColumn
-          AND PdfColumn = @PdfColumn AND TargetSchema = @TargetSchema AND TargetTable = @TargetTable AND Dpi = @Dpi;
+        WHERE EXISTS (SELECT SourceSchema,SourceTable,KeyColumn,PdfColumn,TargetSchema,TargetTable,Dpi,JpegColumn,TextColumn
+                      INTERSECT
+                      SELECT @SourceSchema,@SourceTable,@KeyColumn,@PdfColumn,@TargetSchema,@TargetTable,@Dpi,@JpegColumn,@TextColumn);
 
         BEGIN TRY
             EXEC dbo.RenderPdfTableToJpegs
                  @SourceTable  = @SourceTable,  @KeyColumn   = @KeyColumn,
                  @PdfColumn    = @PdfColumn,    @TargetTable = @TargetTable,
                  @SourceSchema = @SourceSchema, @TargetSchema = @TargetSchema,
-                 @Dpi = @Dpi, @KeyList = @keys;
+                 @Dpi = @Dpi, @KeyList = @keys,
+                 @JpegColumn = @JpegColumn, @TextColumn = @TextColumn;
         END TRY
         BEGIN CATCH
             INSERT dbo.PdfRenderDeadLetter
-                (SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi, ErrorMessage)
-            SELECT SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi, ERROR_MESSAGE()
+                (SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi, JpegColumn, TextColumn, ErrorMessage)
+            SELECT SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi, JpegColumn, TextColumn, ERROR_MESSAGE()
             FROM @claim
-            WHERE SourceSchema = @SourceSchema AND SourceTable = @SourceTable AND KeyColumn = @KeyColumn
-              AND PdfColumn = @PdfColumn AND TargetSchema = @TargetSchema AND TargetTable = @TargetTable AND Dpi = @Dpi;
+            WHERE EXISTS (SELECT SourceSchema,SourceTable,KeyColumn,PdfColumn,TargetSchema,TargetTable,Dpi,JpegColumn,TextColumn
+                          INTERSECT
+                          SELECT @SourceSchema,@SourceTable,@KeyColumn,@PdfColumn,@TargetSchema,@TargetTable,@Dpi,@JpegColumn,@TextColumn);
         END CATCH
 
-        FETCH NEXT FROM grp INTO @SourceSchema, @SourceTable, @KeyColumn, @PdfColumn, @TargetSchema, @TargetTable, @Dpi;
+        FETCH NEXT FROM grp INTO @SourceSchema, @SourceTable, @KeyColumn, @PdfColumn, @TargetSchema, @TargetTable, @Dpi, @JpegColumn, @TextColumn;
     END
     CLOSE grp; DEALLOCATE grp;
 END
@@ -122,6 +134,12 @@ GO
 
 
 /* ----- ENQUEUE-ONLY trigger TEMPLATE: copy per source table, replace <...> ---
+   Choose outputs via the enqueued JpegColumn / TextColumn:
+     - both set     -> image + text   (default)
+     - JpegColumn only -> image only   (TextColumn = NULL)
+     - TextColumn only -> text only    (JpegColumn = NULL)
+   The drain proc raises 50005 if a queued row has both set to NULL.
+
 CREATE OR ALTER TRIGGER dbo.trg_<SourceTable>_EnqueuePdf
 ON dbo.<SourceTable>
 AFTER INSERT, UPDATE
@@ -130,8 +148,8 @@ BEGIN
     SET NOCOUNT ON;
     IF NOT UPDATE(<PdfColumn>) RETURN;
 
-    INSERT dbo.PdfRenderQueue (SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi)
-    SELECT N'dbo', N'<SourceTable>', N'<KeyColumn>', N'<PdfColumn>', N'dbo', N'<TargetTable>', i.<KeyColumn>, 150
+    INSERT dbo.PdfRenderQueue (SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi, JpegColumn, TextColumn)
+    SELECT N'dbo', N'<SourceTable>', N'<KeyColumn>', N'<PdfColumn>', N'dbo', N'<TargetTable>', i.<KeyColumn>, 150, N'JpegBytes', N'PageText'
     FROM inserted i
     WHERE i.<PdfColumn> IS NOT NULL;
 END
@@ -141,6 +159,8 @@ GO
 -- ----- Concrete example: dbo.Documents -> dbo.DocumentsPages ----------------
 -- (Drop dbo.trg_Documents_RenderPdf from file 08 first if you installed it;
 --  don't run both the synchronous and the enqueue trigger on the same table.)
+-- Enqueues both image and text. For a text-only pipeline, set JpegColumn to NULL
+-- (and vice versa); the drain proc honors per-row choices.
 CREATE OR ALTER TRIGGER dbo.trg_Documents_EnqueuePdf
 ON dbo.Documents
 AFTER INSERT, UPDATE
@@ -149,8 +169,8 @@ BEGIN
     SET NOCOUNT ON;
     IF NOT UPDATE(PdfBytes) RETURN;
 
-    INSERT dbo.PdfRenderQueue (SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi)
-    SELECT N'dbo', N'Documents', N'DocId', N'PdfBytes', N'dbo', N'DocumentsPages', i.DocId, 150
+    INSERT dbo.PdfRenderQueue (SourceSchema, SourceTable, KeyColumn, PdfColumn, TargetSchema, TargetTable, KeyValue, Dpi, JpegColumn, TextColumn)
+    SELECT N'dbo', N'Documents', N'DocId', N'PdfBytes', N'dbo', N'DocumentsPages', i.DocId, 150, N'JpegBytes', N'PageText'
     FROM inserted i
     WHERE i.PdfBytes IS NOT NULL;
 END
