@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.porterlee</groupId>
+    <artifactId>pdf-to-jpeg</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>SQL Server Java Language Extension - PDF to JPEG</name>
+    <description>
+        Renders each page of a PDF (stored in a SQL Server VARBINARY(MAX) column)
+        to a JPEG, returned as a result set of (DocId, PageNumber, JpegBytes).
+        Runs inside the SQL Server Java Language Extension via sp_execute_external_script.
+    </description>
+
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 2.0.x is Java 8 compatible and uses PDDocument.load(byte[]).
+             Do NOT bump to 3.x without adjusting the source (Loader.loadPDF API change). -->
+        <pdfbox.version>2.0.31</pdfbox.version>
+    </properties>
+
+    <dependencies>
+        <!-- PDF rendering engine. Pure Java, Apache-2.0. Bundled into the uber jar. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+
+        <!--
+            Microsoft Java Language Extension SDK (AbstractSqlServerExtensionExecutor,
+            PrimitiveDataset). This jar SHIPS WITH SQL Server at:
+              <instance>\MSSQL\Binn\mssql-java-lang-extension.jar
+            It is provided by the runtime, so scope = provided (NOT bundled).
+
+            Install it into your local Maven repo once before building, e.g.:
+
+              mvn install:install-file ^
+                -Dfile="C:\Program Files\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQL\Binn\mssql-java-lang-extension.jar" ^
+                -DgroupId=com.microsoft.sqlserver ^
+                -DartifactId=mssql-java-lang-extension ^
+                -Dversion=1.0 ^
+                -Dpackaging=jar
+        -->
+        <dependency>
+            <groupId>com.microsoft.sqlserver</groupId>
+            <artifactId>mssql-java-lang-extension</artifactId>
+            <version>1.0</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- Produces target/pdf-to-jpeg.jar (the file you upload via CREATE EXTERNAL LIBRARY). -->
+        <finalName>pdf-to-jpeg</finalName>
+        <plugins>
+            <!-- Build a single uber jar containing PDFBox + FontBox + commons-logging
+                 (everything except the provided SDK). The Java extension can only load
+                 a single jar per CREATE EXTERNAL LIBRARY, so dependencies must be shaded in. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
